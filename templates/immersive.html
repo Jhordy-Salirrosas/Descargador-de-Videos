@@ -861,7 +861,7 @@
                 });
 
                 list.innerHTML = Object.entries(folders).map(([uploader, items]) => `
-                        <details class="group mb-3 border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm" open>
+                        <details class="folder-history group mb-3 border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm" data-folder-id="history-${uploader.replace(/\s/g, '-')}">
                             <summary 
                                 ondragover="allowDrop(event)"
                                 ondragenter="this.parentElement.classList.add('ring-2', 'ring-blue-400')"
@@ -903,7 +903,7 @@
                                         <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100 transition justify-end">
                                             ${item.file_exists ?
                         `<button onclick="openFileInExplorer('${item.file_path.replace(/\\/g, '\\\\')}')" class="p-1.5 text-slate-400 hover:text-green-600" title="Abrir Archivo"><i class="fas fa-folder-open"></i></button>` :
-                        `<button onclick="document.getElementById('urlInput').value = '${item.original_url}'; showTab('downloads'); document.getElementById('analyzeBtn').click();" class="p-1.5 text-slate-400 hover:text-blue-600" title="Re-descargar"><i class="fas fa-download"></i></button>`
+                        `<button onclick="document.getElementById('urlInput').value = '${item.original_url}'; document.getElementById('analyzeBtn').click();" class="p-1.5 text-slate-400 hover:text-blue-600" title="Re-descargar"><i class="fas fa-download"></i></button>`
                     }
                                             <a href="${item.original_url}" target="_blank" class="p-1.5 text-slate-400 hover:text-blue-600" title="Ver Original"><i class="fas fa-external-link-alt"></i></a>
                                             <button onclick="document.getElementById('urlInput').value = '${item.original_url}'; document.getElementById('analyzeBtn').click();" class="p-1.5 text-slate-400 hover:text-green-600" title="Volver a Descargar"><i class="fas fa-download"></i></button>
@@ -937,6 +937,12 @@
             } catch (e) {
                 console.error("History error", e);
             }
+
+            // Restore and attach folder state persistence
+            setTimeout(() => {
+                restoreFolderStates();
+                attachFolderListeners();
+            }, 100);
         }
 
         function showTab(tabName) {
@@ -984,7 +990,7 @@
                 });
 
                 list.innerHTML = Object.entries(folders).map(([uploader, items]) => `
-                        <details class="group mb-3 border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm" open>
+                        <details class="folder-downloads group mb-3 border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm" data-folder-id="downloads-${uploader.replace(/\s/g, '-')}">
                             <summary class="flex justify-between items-center p-3 cursor-pointer bg-slate-50 hover:bg-slate-100 transition select-none">
                                 <div class="flex items-center gap-2 font-bold text-slate-700">
                                     <i class="far fa-folder-open text-yellow-500"></i>
@@ -1033,6 +1039,12 @@
                 console.error("Downloads error", e);
                 list.innerHTML = '<div class="p-8 text-center text-red-400">Error cargando descargas</div>';
             }
+
+            // Restore and attach folder state persistence
+            setTimeout(() => {
+                restoreFolderStates();
+                attachFolderListeners();
+            }, 100);
         }
 
         async function openFileInExplorer(filePath) {
@@ -1104,6 +1116,41 @@
                 await showAlert("Error renombrando: " + e.message);
                 loadHistory();
             }
+        }
+
+        // ==================== FOLDER STATE PERSISTENCE ====================
+        function saveFolderStates() {
+            const states = {};
+            document.querySelectorAll('.folder-history, .folder-downloads').forEach(folder => {
+                const id = folder.getAttribute('data-folder-id');
+                if (id) {
+                    states[id] = folder.open;
+                }
+            });
+            localStorage.setItem('folderStates', JSON.stringify(states));
+        }
+
+        function restoreFolderStates() {
+            const saved = localStorage.getItem('folderStates');
+            if (!saved) return;
+
+            try {
+                const states = JSON.parse(saved);
+                document.querySelectorAll('.folder-history, .folder-downloads').forEach(folder => {
+                    const id = folder.getAttribute('data-folder-id');
+                    if (id && states.hasOwnProperty(id)) {
+                        folder.open = states[id];
+                    }
+                });
+            } catch (e) {
+                console.error('Error restoring folder states:', e);
+            }
+        }
+
+        function attachFolderListeners() {
+            document.querySelectorAll('.folder-history, .folder-downloads').forEach(folder => {
+                folder.addEventListener('toggle', saveFolderStates);
+            });
         }
 
         function allowDrop(ev) {
