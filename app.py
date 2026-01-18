@@ -220,7 +220,7 @@ def progress_hook(d):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('immersive.html')
 
 @app.route('/history', methods=['GET'])
 def get_history_route():
