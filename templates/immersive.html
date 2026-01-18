@@ -125,22 +125,28 @@
 
         /* Custom Scrollbar */
         ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
         }
 
         ::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.3);
+            background: rgba(15, 23, 42, 0.4);
             border-radius: 10px;
         }
 
         ::-webkit-scrollbar-thumb {
-            background: rgba(6, 182, 212, 0.5);
+            background: rgba(6, 182, 212, 0.7);
             border-radius: 10px;
+            border: 2px solid rgba(0, 0, 0, 0.2);
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: rgba(6, 182, 212, 0.7);
+            background: rgba(6, 182, 212, 0.9);
+        }
+
+        /* Smooth scroll */
+        .tab-content {
+            scroll-behavior: smooth;
         }
     </style>
 </head>
@@ -407,14 +413,14 @@
                     </div>
 
                     <!-- Downloads Content -->
-                    <div id="downloads-content" class="tab-content max-h-96 overflow-y-auto">
+                    <div id="downloads-content" class="tab-content max-h-96 overflow-y-auto pr-2">
                         <div id="downloadsList" class="space-y-2">
                             <p class="text-center text-white/40 text-xs py-4">No downloads</p>
                         </div>
                     </div>
 
                     <!-- History Content -->
-                    <div id="history-content" class="tab-content hidden max-h-96 overflow-y-auto">
+                    <div id="history-content" class="tab-content hidden max-h-96 overflow-y-auto pr-2">
                         <div id="historyList" class="space-y-2">
                             <p class="text-center text-white/40 text-xs py-4">Loading...</p>
                         </div>
