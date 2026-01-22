@@ -153,16 +153,29 @@
 
 <body class="min-h-screen relative overflow-hidden">
 
-    <!-- CINEMATIC BACKGROUND IMAGE -->
+    <!-- CINEMATIC BACKGROUND (Dynamic) -->
     <div id="parallax-bg" class="fixed inset-0 w-full h-full z-0" style="will-change: transform;">
-        <img src="/static/cinematic_bg.png" alt="" class="w-full h-full object-cover scale-110"
+        <!-- Background Image Container -->
+        <img id="bg-image" src="/static/cinematic_bg.png" alt="" class="w-full h-full object-cover scale-110"
             style="filter: brightness(0.6);">
+        <!-- Background Video Container (hidden by default) -->
+        <video id="bg-video" class="hidden w-full h-full object-cover scale-110" autoplay loop muted playsinline
+            style="filter: brightness(0.6);">
+        </video>
     </div>
 
     <!-- PARTICLE CANVAS -->
     <canvas id="particles" class="fixed inset-0 w-full h-full z-10 pointer-events-none"></canvas>
 
-    <!-- Custom Modal System -->
+    <!-- FLOATING SETTINGS BUTTON -->
+    <button onclick="openBackgroundSettings()"
+        class="fixed top-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 shadow-2xl group"
+        style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.9), rgba(168, 85, 247, 0.9)); backdrop-filter: blur(10px); border: 2px solid rgba(255, 255, 255, 0.3);"
+        title="Personalizar Fondo">
+        <i class="fas fa-palette text-white text-xl group-hover:rotate-12 transition-transform"></i>
+    </button>
+
+    <!-- Custom Modal System (Alert/Confirm) -->
     <div id="customModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4"
         style="background: rgba(0,0,0,0.85); backdrop-filter: blur(15px);">
         <div class="rounded-3xl p-8 max-w-md w-full relative overflow-hidden"
@@ -205,38 +218,151 @@
         </div>
     </div>
 
-    <!-- MAIN IMMERSIVE CONTAINER -->
-    <div class="min-h-screen flex flex-col relative z-20">
+    <!-- Background Settings Modal -->
+    <div id="bgSettingsModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 overflow-y-auto"
+        style="background: rgba(0,0,0,0.90); backdrop-filter: blur(20px);">
+        <div class="rounded-3xl p-6 max-w-2xl w-full relative my-8 max-h-[90vh] overflow-y-auto"
+            style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95)); backdrop-filter: blur(30px); border: 2px solid rgba(6, 182, 212, 0.3); box-shadow: 0 25px 80px rgba(6, 182, 212, 0.3);">
 
-        <!-- CENTERED HERO SECTION -->
-        <div class="flex-1 flex flex-col items-center justify-center px-4 pb-32">
-
-            <!-- GIANT HEADER -->
-            <div class="text-center mb-12 fade-in">
-                <h1 class="text-6xl md:text-7xl lg:text-8xl font-black text-white mb-4"
-                    style="text-shadow: 0 0 40px rgba(34, 211, 238, 0.6), 0 0 80px rgba(168, 85, 247, 0.4);">
-                    Flux<span
-                        class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400">Downloader</span>
-                </h1>
-                <p class="text-white/70 text-lg md:text-xl font-light tracking-wide">
-                    Premium Media Downloader
-                </p>
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center gap-4">
+                    <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-4xl shadow-2xl"
+                        style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.3), rgba(168, 85, 247, 0.3)); backdrop-filter: blur(10px);">
+                        <i class="fas fa-palette text-cyan-400"></i>
+                    </div>
+                    <h3 class="text-3xl font-black text-white drop-shadow-lg">Personalizar Fondo</h3>
+                </div>
+                <button onclick="closeBackgroundSettings()"
+                    class="w-12 h-12 rounded-xl flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
             </div>
 
-            <!-- COMMAND BAR (HERO ELEMENT) -->
-            <div class="w-full max-w-4xl">
-                <div class="cyber-card rounded-3xl p-8 shadow-2xl animate-pulse-glow">
+            <!-- Tabs -->
+            <div class="flex gap-2 mb-6">
+                <button onclick="switchBgTab('image')" id="bg-tab-image"
+                    class="flex-1 px-6 py-3 rounded-xl font-bold transition-all text-white glass-button">
+                    <i class="fas fa-image mr-2"></i> Imagen
+                </button>
+                <button onclick="switchBgTab('video')" id="bg-tab-video"
+                    class="flex-1 px-6 py-3 rounded-xl font-bold transition-all text-white bg-white/10 hover:bg-white/20">
+                    <i class="fas fa-video mr-2"></i> Video
+                </button>
+            </div>
+
+            <!-- Image Tab Content -->
+            <div id="bg-content-image" class="space-y-6">
+                <div class="cyber-card rounded-2xl p-6">
+                    <label class="block text-white font-bold mb-3">
+                        <i class="fas fa-link text-cyan-400 mr-2"></i> URL de Imagen
+                    </label>
+                    <input type="text" id="bg-image-url" placeholder="https://ejemplo.com/imagen.jpg"
+                        class="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-white/40" />
+                    <p class="text-white/50 text-xs mt-2">O arrastra una imagen aquí, o haz clic para seleccionar</p>
+                    <input type="file" id="bg-image-file" accept="image/*" class="hidden"
+                        onchange="handleImageUpload(event)" />
+                    <button onclick="document.getElementById('bg-image-file').click()"
+                        class="mt-3 w-full cyber-button text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2">
+                        <i class="fas fa-upload"></i> Subir Imagen desde PC
+                    </button>
+                </div>
+
+                <!-- Brightness Control -->
+                <div class="cyber-card rounded-2xl p-6">
+                    <label class="block text-white font-bold mb-3">
+                        <i class="fas fa-sun text-yellow-400 mr-2"></i> Brillo del Fondo
+                    </label>
+                    <input type="range" id="bg-brightness" min="0" max="100" value="60" class="w-full"
+                        oninput="updateImageBrightness(this.value)" />
+                    <div class="flex justify-between text-white/50 text-xs mt-2">
+                        <span>Oscuro</span>
+                        <span id="brightness-value">60%</span>
+                        <span>Claro</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Tab Content -->
+            <div id="bg-content-video" class="hidden space-y-6">
+                <div class="cyber-card rounded-2xl p-6">
+                    <label class="block text-white font-bold mb-3">
+                        <i class="fas fa-link text-cyan-400 mr-2"></i> URL de Video
+                    </label>
+                    <input type="text" id="bg-video-url" placeholder="https://ejemplo.com/video.mp4"
+                        class="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-white/40" />
+                    <p class="text-white/50 text-xs mt-2">Formatos soportados: MP4, WebM</p>
+                    <input type="file" id="bg-video-file" accept="video/*" class="hidden"
+                        onchange="handleVideoUpload(event)" />
+                    <button onclick="document.getElementById('bg-video-file').click()"
+                        class="mt-3 w-full cyber-button text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2">
+                        <i class="fas fa-upload"></i> Subir Video desde PC
+                    </button>
+                </div>
+
+                <!-- Brightness Control for Video -->
+                <div class="cyber-card rounded-2xl p-6">
+                    <label class="block text-white font-bold mb-3">
+                        <i class="fas fa-sun text-yellow-400 mr-2"></i> Brillo del Fondo
+                    </label>
+                    <input type="range" id="bg-video-brightness" min="0" max="100" value="60" class="w-full"
+                        oninput="updateVideoBrightness(this.value)" />
+                    <div class="flex justify-between text-white/50 text-xs mt-2">
+                        <span>Oscuro</span>
+                        <span id="video-brightness-value">60%</span>
+                        <span>Claro</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex gap-4 mt-8">
+                <button onclick="resetBackground()"
+                    class="flex-1 px-6 py-4 rounded-xl font-bold transition-all text-white"
+                    style="background: rgba(239, 68, 68, 0.2); border: 2px solid rgba(239, 68, 68, 0.5); backdrop-filter: blur(10px);">
+                    <i class="fas fa-undo mr-2"></i> Restablecer
+                </button>
+                <button onclick="applyBackgroundSettings()"
+                    class="flex-1 px-6 py-4 rounded-xl font-bold transition-all text-white shadow-2xl"
+                    style="background: linear-gradient(135deg, #06b6d4, #a855f7); border: 2px solid rgba(255, 255, 255, 0.4);">
+                    <i class="fas fa-check mr-2"></i> Aplicar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN SPLIT-SCREEN CONTAINER -->
+    <div class="min-h-screen h-screen flex flex-col relative z-20">
+
+        <!-- CENTERED HEADER -->
+        <div class="text-center py-8 px-4">
+            <h1 class="text-5xl md:text-6xl font-black text-white mb-2"
+                style="text-shadow: 0 0 40px rgba(34, 211, 238, 0.6), 0 0 80px rgba(168, 85, 247, 0.4);">
+                Flux<span
+                    class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400">Downloader</span>
+            </h1>
+            <p class="text-white/70 text-base font-light tracking-wide">
+                Premium Media Downloader
+            </p>
+        </div>
+
+        <!-- TWO COLUMN LAYOUT -->
+        <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4 overflow-hidden">
+
+            <!-- LEFT PANEL: INPUT & ANALYSIS -->
+            <div class="flex flex-col overflow-y-auto pr-2" style="scroll-behavior: smooth;">
+                <div class="cyber-card rounded-3xl p-6 shadow-2xl animate-pulse-glow h-fit">
                     <div class="space-y-6">
                         <!-- Input URL + Button -->
-                        <div class="flex flex-col md:flex-row gap-4">
+                        <div class="flex flex-col gap-4">
                             <!-- Input URL -->
                             <div class="flex-1">
                                 <div class="relative">
-                                    <i class="fas fa-link absolute top-5 left-5 text-cyan-400 text-xl"></i>
+                                    <i class="fas fa-link absolute top-4 left-4 text-cyan-400 text-lg"></i>
                                     <input type="text" id="urlInput" placeholder="Enter media URL here..."
-                                        class="cyber-input w-full pl-14 pr-14 py-5 rounded-2xl text-white placeholder-white/40 text-lg font-medium" />
+                                        class="cyber-input w-full pl-12 pr-12 py-4 rounded-2xl text-white placeholder-white/40 text-base font-medium" />
                                     <button onclick="pasteFromClipboard()"
-                                        class="absolute top-4 right-4 p-2 text-white/60 hover:text-cyan-400 transition"
+                                        class="absolute top-3 right-3 p-2 text-white/60 hover:text-cyan-400 transition"
                                         title="Paste">
                                         <i class="far fa-clipboard fa-lg"></i>
                                     </button>
@@ -244,21 +370,19 @@
                             </div>
 
                             <!-- Scan Button -->
-                            <div>
-                                <button onclick="analyzeVideo()" id="analyzeBtn"
-                                    class="cyber-button h-full px-8 py-5 text-white font-bold text-lg rounded-2xl shadow-2xl transition-all transform active:scale-95 flex items-center gap-3 whitespace-nowrap">
-                                    <i class="fas fa-search text-xl"></i>
-                                    <span id="btnText">SCAN</span>
-                                    <svg id="btnSpinner" class="animate-spin h-6 w-6 text-white hidden"
-                                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
-                                            stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor"
-                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                        </path>
-                                    </svg>
-                                </button>
-                            </div>
+                            <button onclick="analyzeVideo()" id="analyzeBtn"
+                                class="cyber-button w-full px-6 py-4 text-white font-bold text-lg rounded-2xl shadow-2xl transition-all transform active:scale-95 flex items-center justify-center gap-3">
+                                <i class="fas fa-search text-xl"></i>
+                                <span id="btnText">Analizar Enlace</span>
+                                <svg id="btnSpinner" class="animate-spin h-6 w-6 text-white hidden"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                        stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                            </button>
                         </div>
 
                         <!-- Cookies Section (Collapsible) -->
@@ -334,13 +458,13 @@
                         <!-- Analysis Results -->
                         <div id="resultsArea" class="hidden pt-6 fade-in space-y-6">
                             <div class="cyber-card rounded-2xl p-5 border border-white/5">
-                                <div class="flex flex-col md:flex-row gap-4 mb-4">
-                                    <div class="relative w-full md:w-48 shrink-0 group">
+                                <div class="flex flex-col gap-4 mb-4">
+                                    <div class="relative w-full shrink-0 group">
                                         <img id="vidThumb" src=""
-                                            class="w-full h-28 object-cover rounded-xl shadow-lg bg-slate-800/50" />
+                                            class="w-full h-32 object-cover rounded-xl shadow-lg bg-slate-800/50" />
                                     </div>
                                     <div class="flex-1 min-w-0">
-                                        <h2 id="vidTitle" class="text-xl font-bold text-white line-clamp-2 mb-2">Title
+                                        <h2 id="vidTitle" class="text-lg font-bold text-white line-clamp-2 mb-2">Title
                                         </h2>
                                         <div class="flex items-center text-sm text-white/60 space-x-4">
                                             <span id="vidDuration" class="flex items-center">
@@ -354,7 +478,7 @@
                                     </div>
                                 </div>
 
-                                <div id="formatsGrid" class="grid grid-cols-1 gap-3 max-h-80 overflow-y-auto pr-1">
+                                <div id="formatsGrid" class="grid grid-cols-1 gap-3 max-h-96 overflow-y-auto pr-1">
                                     <!-- Format Buttons -->
                                 </div>
                             </div>
@@ -379,7 +503,7 @@
                             </div>
 
                             <div id="playlistGrid"
-                                class="max-h-80 overflow-y-auto pr-1 space-y-2 cyber-card rounded-xl p-3 border border-white/5">
+                                class="max-h-96 overflow-y-auto pr-1 space-y-2 cyber-card rounded-xl p-3 border border-white/5">
                                 <!-- Playlist Items -->
                             </div>
 
@@ -394,39 +518,38 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- GLASS DOCK (Bottom) -->
-        <div class="fixed bottom-0 left-0 right-0 z-30 p-4">
-            <div class="max-w-7xl mx-auto">
-                <div class="cyber-card rounded-2xl p-4 border border-white/20 shadow-2xl bg-black/40">
-                    <!-- Mini Tabs -->
-                    <div class="flex gap-2 mb-3">
+            <!-- RIGHT PANEL: DOWNLOADS & HISTORY -->
+            <div class="flex flex-col overflow-hidden">
+                <div class="cyber-card rounded-2xl p-4 border border-white/20 shadow-2xl bg-black/40 flex flex-col h-full">
+                    <!-- Tabs -->
+                    <div class="flex gap-2 mb-4">
                         <button onclick="showTab('downloads')" id="tab-downloads"
-                            class="tab-btn flex-1 px-4 py-2 rounded-lg text-xs font-bold transition-all glass-button text-white">
+                            class="tab-btn flex-1 px-4 py-3 rounded-lg text-sm font-bold transition-all glass-button text-white">
                             <i class="fas fa-download mr-1"></i> Downloads <span id="downloads-count">(0)</span>
                         </button>
                         <button onclick="showTab('history')" id="tab-history"
-                            class="tab-btn flex-1 px-4 py-2 rounded-lg text-xs font-bold transition-all bg-white/10 text-white hover:bg-white/20">
+                            class="tab-btn flex-1 px-4 py-3 rounded-lg text-sm font-bold transition-all bg-white/10 text-white hover:bg-white/20">
                             <i class="fas fa-history mr-1"></i> History <span id="history-count">(0)</span>
                         </button>
                     </div>
 
                     <!-- Downloads Content -->
-                    <div id="downloads-content" class="tab-content max-h-96 overflow-y-auto pr-2">
+                    <div id="downloads-content" class="tab-content flex-1 overflow-y-auto pr-2">
                         <div id="downloadsList" class="space-y-2">
-                            <p class="text-center text-white/40 text-xs py-4">No downloads</p>
+                            <p class="text-center text-white/40 text-sm py-8">No downloads</p>
                         </div>
                     </div>
 
                     <!-- History Content -->
-                    <div id="history-content" class="tab-content hidden max-h-96 overflow-y-auto pr-2">
+                    <div id="history-content" class="tab-content hidden flex-1 overflow-y-auto pr-2">
                         <div id="historyList" class="space-y-2">
-                            <p class="text-center text-white/40 text-xs py-4">Loading...</p>
+                            <p class="text-center text-white/40 text-sm py-8">Loading...</p>
                         </div>
                     </div>
                 </div>
             </div>
+
         </div>
     </div>
 
@@ -1544,6 +1667,389 @@
                 if (e.target.id === 'customModal') closeModal();
             });
         }
+
+
+        // ==================== DOCK MINIMIZE/MAXIMIZE ====================
+        let isDockMinimized = false;
+        function toggleDock() {
+            const dockContent = document.querySelectorAll('.tab-content');
+            const dockContainer = document.querySelector('#glassDock .cyber-card');
+            const icon = document.getElementById('dockToggleIcon');
+
+            isDockMinimized = !isDockMinimized;
+
+            if (isDockMinimized) {
+                // Hide content, keep tabs and rounded corners visible
+                dockContent.forEach(content => {
+                    content.style.maxHeight = '0';
+                    content.style.paddingTop = '0';
+                    content.style.paddingBottom = '0';
+                    content.style.marginTop = '0';
+                });
+                // Ensure bottom padding to show rounded corners
+                dockContainer.style.paddingBottom = '1rem';
+                icon.className = 'fas fa-chevron-up text-white';
+            } else {
+                // Show content with smooth transition
+                dockContent.forEach(content => {
+                    content.style.maxHeight = '12rem'; // max-h-48
+                    content.style.paddingTop = '';
+                    content.style.paddingBottom = '';
+                    content.style.marginTop = '';
+                });
+                // Restore original padding
+                dockContainer.style.paddingBottom = '1rem';
+                icon.className = 'fas fa-chevron-down text-white';
+            }
+        }
+
+        // ==================== BACKGROUND CUSTOMIZATION ====================
+        function openBackgroundSettings() {
+            const modal = document.getElementById('bgSettingsModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            // Determine which tab to show based on last saved type
+            const bgType = localStorage.getItem('bg-type') || 'image';
+            switchBgTab(bgType);
+        }
+
+        function closeBackgroundSettings() {
+            const modal = document.getElementById('bgSettingsModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function switchBgTab(tab) {
+            const tabs = ['image', 'video'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`bg-tab-${t}`);
+                const content = document.getElementById(`bg-content-${t}`);
+
+                if (t === tab) {
+                    btn.classList.remove('bg-white/10', 'hover:bg-white/20');
+                    btn.classList.add('glass-button');
+                    content.classList.remove('hidden');
+                } else {
+                    btn.classList.remove('glass-button');
+                    btn.classList.add('bg-white/10', 'hover:bg-white/20');
+                    content.classList.add('hidden');
+                }
+            });
+
+            // Lazy load settings for current tab only
+            setTimeout(() => {
+                const brightness = localStorage.getItem('bg-brightness') || '60';
+                if (tab === 'image') {
+                    const imageUrl = localStorage.getItem('bg-image-url') || '';
+                    document.getElementById('bg-image-url').value = imageUrl;
+                    document.getElementById('bg-brightness').value = brightness;
+                    updateImageBrightness(brightness);
+                } else {
+                    const videoUrl = localStorage.getItem('bg-video-url') || '';
+                    document.getElementById('bg-video-url').value = videoUrl;
+                    document.getElementById('bg-video-brightness').value = brightness;
+                    updateVideoBrightness(brightness);
+                }
+            }, 0);
+        }
+
+        async function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Check file size
+            const maxBase64Size = 5 * 1024 * 1024; // 5MB
+            const warningSize = 2 * 1024 * 1024; // 2MB
+
+            const urlInput = document.getElementById('bg-image-url');
+            const originalValue = urlInput.value;
+
+            // For files >5MB, use server upload
+            if (file.size > maxBase64Size) {
+                urlInput.value = 'Subiendo al servidor... Por favor espera';
+                urlInput.disabled = true;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch('/api/upload-background', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        urlInput.value = result.url;
+                        showAlert(
+                            `✅ Imagen subida al servidor (${(result.size / 1024 / 1024).toFixed(1)}MB).\n\n` +
+                            `Se guardó en: ${result.filename}\n\n` +
+                            `Esta opción es mejor para archivos grandes - no consume memoria del navegador.`,
+                            '✓ Upload Exitoso'
+                        );
+                    } else {
+                        throw new Error(result.error || 'Error desconocido');
+                    }
+                } catch (error) {
+                    urlInput.value = originalValue;
+                    showAlert('Error al subir archivo: ' + error.message, '❌ Error');
+                } finally {
+                    urlInput.disabled = false;
+                }
+                return;
+            }
+
+            // For files <=5MB, use base64 (faster, no server storage)
+            urlInput.value = 'Cargando imagen... Por favor espera';
+            urlInput.disabled = true;
+
+            try {
+                // Warn about file size
+                if (file.size > warningSize) {
+                    console.warn(`⚠️ Archivo detectado: ${(file.size / 1024 / 1024).toFixed(1)}MB. Usando base64.`);
+                }
+
+                // Use async file reading
+                const result = await readFileAsDataURL(file);
+                urlInput.value = result;
+            } catch (error) {
+                urlInput.value = originalValue;
+                showAlert('Error al cargar la imagen: ' + error.message, '❌ Error');
+            } finally {
+                urlInput.disabled = false;
+            }
+        }
+
+        async function handleVideoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Check file size
+            const maxBase64Size = 5 * 1024 * 1024; // 5MB
+            const warningSize = 2 * 1024 * 1024; // 2MB
+
+            const urlInput = document.getElementById('bg-video-url');
+            const originalValue = urlInput.value;
+
+            // For files >5MB, use server upload
+            if (file.size > maxBase64Size) {
+                urlInput.value = 'Subiendo al servidor... Por favor espera';
+                urlInput.disabled = true;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch('/api/upload-background', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        urlInput.value = result.url;
+                        showAlert(
+                            `✅ Video subido al servidor (${(result.size / 1024 / 1024).toFixed(1)}MB).\n\n` +
+                            `Se guardó en: ${result.filename}\n\n` +
+                            `Videos grandes SIEMPRE deben subirse al servidor - no uses base64.`,
+                            '✓ Upload Exitoso'
+                        );
+                    } else {
+                        throw new Error(result.error || 'Error desconocido');
+                    }
+                } catch (error) {
+                    urlInput.value = originalValue;
+                    showAlert('Error al subir archivo: ' + error.message, '❌ Error');
+                } finally {
+                    urlInput.disabled = false;
+                }
+                return;
+            }
+
+            // For files <=5MB, use base64
+            urlInput.value = 'Cargando video... Por favor espera';
+            urlInput.disabled = true;
+
+            try {
+                // Warn about file size
+                if (file.size > warningSize) {
+                    console.warn(`⚠️ Video detectado: ${(file.size / 1024 / 1024).toFixed(1)}MB. Usando base64.`);
+                }
+
+                // Use async file reading
+                const result = await readFileAsDataURL(file);
+                urlInput.value = result;
+            } catch (error) {
+                urlInput.value = originalValue;
+                showAlert('Error al cargar el video: ' + error.message, '❌ Error');
+            } finally {
+                urlInput.disabled = false;
+            }
+        }
+
+        // Helper function for async file reading
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('Error al leer el archivo'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function updateImageBrightness(value) {
+            document.getElementById('brightness-value').textContent = value + '%';
+        }
+
+        function updateVideoBrightness(value) {
+            document.getElementById('video-brightness-value').textContent = value + '%';
+        }
+
+        function applyBackgroundSettings() {
+            const activeTab = document.getElementById('bg-tab-image').classList.contains('glass-button') ? 'image' : 'video';
+
+            if (activeTab === 'image') {
+                const imageUrl = document.getElementById('bg-image-url').value.trim();
+                const brightness = document.getElementById('bg-brightness').value;
+
+                if (!imageUrl) {
+                    showAlert('Por favor ingresa una URL de imagen o sube un archivo', '⚠️ URL Requerida');
+                    return;
+                }
+
+                // Apply image background
+                const bgImage = document.getElementById('bg-image');
+                const bgVideo = document.getElementById('bg-video');
+
+                bgImage.src = imageUrl;
+                bgImage.style.filter = `brightness(${brightness / 100})`;
+                bgImage.classList.remove('hidden');
+                bgVideo.classList.add('hidden');
+                bgVideo.pause();
+
+                // Save to localStorage
+                localStorage.setItem('bg-type', 'image');
+                localStorage.setItem('bg-image-url', imageUrl);
+                localStorage.setItem('bg-brightness', brightness);
+
+                showAlert('✨ Fondo de imagen aplicado correctamente', '✓ Éxito');
+            } else {
+                const videoUrl = document.getElementById('bg-video-url').value.trim();
+                const brightness = document.getElementById('bg-video-brightness').value;
+
+                if (!videoUrl) {
+                    showAlert('Por favor ingresa una URL de video o sube un archivo', '⚠️ URL Requerida');
+                    return;
+                }
+
+                // Apply video background
+                const bgImage = document.getElementById('bg-image');
+                const bgVideo = document.getElementById('bg-video');
+
+                bgVideo.src = videoUrl;
+                bgVideo.style.filter = `brightness(${brightness / 100})`;
+                bgVideo.classList.remove('hidden');
+                bgVideo.play().catch(e => console.log('Video autoplay failed:', e));
+                bgImage.classList.add('hidden');
+
+                // Save to localStorage
+                localStorage.setItem('bg-type', 'video');
+                localStorage.setItem('bg-video-url', videoUrl);
+                localStorage.setItem('bg-brightness', brightness);
+
+                showAlert('✨ Fondo de video aplicado correctamente', '✓ Éxito');
+            }
+
+            closeBackgroundSettings();
+        }
+
+        function resetBackground() {
+            // Reset to default
+            const bgImage = document.getElementById('bg-image');
+            const bgVideo = document.getElementById('bg-video');
+
+            bgImage.src = '/static/cinematic_bg.png';
+            bgImage.style.filter = 'brightness(0.6)';
+            bgImage.classList.remove('hidden');
+            bgVideo.classList.add('hidden');
+            bgVideo.pause();
+            bgVideo.src = '';
+
+            // Clear localStorage
+            localStorage.removeItem('bg-type');
+            localStorage.removeItem('bg-image-url');
+            localStorage.removeItem('bg-video-url');
+            localStorage.removeItem('bg-brightness');
+
+            // Reset inputs
+            document.getElementById('bg-image-url').value = '';
+            document.getElementById('bg-video-url').value = '';
+            document.getElementById('bg-brightness').value = '60';
+            document.getElementById('bg-video-brightness').value = '60';
+            updateImageBrightness(60);
+            updateVideoBrightness(60);
+
+            showAlert('✓ Fondo restablecido al predeterminado', '✓ Listo');
+            closeBackgroundSettings();
+        }
+
+        function loadBackgroundSettings() {
+            return; // DISABLED: Now handled by switchBgTab lazy loading
+            const bgType = localStorage.getItem('bg-type');
+            const brightness = localStorage.getItem('bg-brightness') || '60';
+
+            // Set brightness values
+            document.getElementById('bg-brightness').value = brightness;
+            document.getElementById('bg-video-brightness').value = brightness;
+            updateImageBrightness(brightness);
+            updateVideoBrightness(brightness);
+
+            if (bgType === 'image') {
+                const imageUrl = localStorage.getItem('bg-image-url');
+                if (imageUrl) {
+                    document.getElementById('bg-image-url').value = imageUrl;
+                }
+                switchBgTab('image');
+            } else if (bgType === 'video') {
+                const videoUrl = localStorage.getItem('bg-video-url');
+                if (videoUrl) {
+                    document.getElementById('bg-video-url').value = videoUrl;
+                }
+                switchBgTab('video');
+            }
+        }
+
+        function initializeBackground() {
+            const bgType = localStorage.getItem('bg-type');
+            const brightness = localStorage.getItem('bg-brightness') || '60';
+
+            if (bgType === 'image') {
+                const imageUrl = localStorage.getItem('bg-image-url');
+                if (imageUrl) {
+                    const bgImage = document.getElementById('bg-image');
+                    bgImage.src = imageUrl;
+                    bgImage.style.filter = `brightness(${brightness / 100})`;
+                }
+            } else if (bgType === 'video') {
+                const videoUrl = localStorage.getItem('bg-video-url');
+                if (videoUrl) {
+                    const bgImage = document.getElementById('bg-image');
+                    const bgVideo = document.getElementById('bg-video');
+
+                    bgVideo.src = videoUrl;
+                    bgVideo.style.filter = `brightness(${brightness / 100})`;
+                    bgVideo.classList.remove('hidden');
+                    bgVideo.play().catch(e => console.log('Video autoplay failed:', e));
+                    bgImage.classList.add('hidden');
+                }
+            }
+        }
+
+        // Initialize background on page load
+        initializeBackground();
 
         // Initialize
         setTimeout(loadHistory, 500);
