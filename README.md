@@ -12,6 +12,9 @@ Un descargador de videos avanzado con interfaz web, compatible con múltiples si
 - ✅ **Historial de descargas** persistente
 - ✅ **Detección automática de uploader/actriz** para organización de carpetas
 - ✅ **Barra de progreso en tiempo real**
+- ✅ **Cola de descargas** con concurrencia configurable
+- ✅ **Healthcheck y diagnóstico** (`/health`, `/queue/status`)
+- ✅ **Fallback portátil de FFmpeg** (si no está en PATH)
 
 ## 📋 Requisitos
 
@@ -21,6 +24,7 @@ Un descargador de videos avanzado con interfaz web, compatible con múltiples si
   - Flask
   - yt-dlp
   - requests
+   - imageio-ffmpeg
 
 ## 🔧 Instalación
 
@@ -28,7 +32,7 @@ Un descargador de videos avanzado con interfaz web, compatible con múltiples si
 
 2. **Instalar dependencias**:
    ```bash
-   pip install flask yt-dlp requests
+   pip install flask yt-dlp requests imageio-ffmpeg
    ```
 
 3. **Instalar FFmpeg**:
@@ -60,6 +64,15 @@ Un descargador de videos avanzado con interfaz web, compatible con múltiples si
 
 4. **Ver historial**:
    - Clic en el botón "Historial" en la interfaz
+
+5. **Verificar salud del backend**:
+   - `http://localhost:5000/health`
+   - `http://localhost:5000/queue/status`
+
+## ⚙️ Configuración avanzada
+
+- `MAX_CONCURRENT_DOWNLOADS`: número máximo de descargas simultáneas (default: `2`).
+- También puedes definirlo en `data/config.json` con `max_concurrent_downloads`.
 
 ## 📁 Estructura del Proyecto
 
@@ -118,7 +131,7 @@ El directorio `tests/` contiene scripts útiles para:
 
 ## 📝 Notas Importantes
 
-- **FFmpeg requerido**: La aplicación necesita FFmpeg para procesar algunos formatos de video
+- **FFmpeg requerido**: Si no está instalado globalmente, se intentará usar el binario de `imageio-ffmpeg`
 - **Cookies**: Algunos sitios requieren cookies de sesión válidas para acceder a contenido
 - **Paths**: Los archivos temporales se limpian automáticamente cuando es posible
 

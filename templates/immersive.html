@@ -7,12 +7,12 @@
     <title>FluxDownloader - Immersive</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap"
         rel="stylesheet">
 
     <style>
         * {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
 
         body {
@@ -148,10 +148,658 @@
         .tab-content {
             scroll-behavior: smooth;
         }
+
+        :root {
+            --fd-bg: #070b14;
+            --fd-bg-soft: #0b1220;
+            --fd-paper: rgba(12, 20, 35, 0.82);
+            --fd-paper-strong: rgba(16, 28, 46, 0.88);
+            --fd-border: rgba(88, 141, 214, 0.35);
+            --fd-ink: #e9f2ff;
+            --fd-muted: #9fb1ca;
+            --fd-brand: #1fa5ff;
+            --fd-brand-2: #10b981;
+            --fd-warm: #f4b452;
+            --fd-shadow: 0 20px 50px rgba(1, 7, 19, 0.52);
+            --custom-card-alpha: 0.76;
+            --custom-pane-alpha: 0.62;
+            --custom-input-alpha: 0.64;
+            --custom-tab-alpha: 0.55;
+        }
+
+        body {
+            color: var(--fd-ink);
+            background:
+                radial-gradient(1200px 600px at -10% -20%, rgba(16, 185, 129, 0.14), transparent 48%),
+                radial-gradient(900px 560px at 110% 0%, rgba(244, 180, 82, 0.16), transparent 44%),
+                linear-gradient(160deg, var(--fd-bg) 0%, #0b1220 48%, #0f1b32 100%);
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background-image: radial-gradient(rgba(138, 177, 230, 0.22) 1px, transparent 1px);
+            background-size: 22px 22px;
+            opacity: 0.2;
+            mask-image: radial-gradient(circle at center, black 40%, transparent 92%);
+        }
+
+        #parallax-bg {
+            opacity: 0.4;
+        }
+
+        #parallax-bg img,
+        #parallax-bg video {
+            filter: grayscale(0.05) sepia(0.08) brightness(0.58) contrast(1.1);
+            mix-blend-mode: screen;
+        }
+
+        body.custom-bg #parallax-bg {
+            opacity: 1;
+        }
+
+        body.custom-bg #parallax-bg img,
+        body.custom-bg #parallax-bg video {
+            mix-blend-mode: normal;
+        }
+
+        .workspace-shell {
+            max-width: 1450px;
+            margin: 0 auto;
+        }
+
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: minmax(360px, 0.92fr) minmax(500px, 1.08fr);
+            gap: 1.1rem;
+        }
+
+        .cyber-card {
+            background: linear-gradient(160deg, var(--fd-paper), var(--fd-paper-strong)) !important;
+            border: 1px solid var(--fd-border) !important;
+            box-shadow: var(--fd-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+
+        .cyber-input {
+            background: rgba(8, 15, 28, 0.88) !important;
+            border: 1px solid rgba(75, 143, 228, 0.45) !important;
+            color: var(--fd-ink) !important;
+        }
+
+        .cyber-input::placeholder {
+            color: #91a8c6 !important;
+        }
+
+        .cyber-input:focus {
+            border-color: rgba(244, 180, 82, 0.8) !important;
+            box-shadow: 0 0 0 3px rgba(244, 180, 82, 0.2), 0 8px 18px rgba(14, 64, 124, 0.4) !important;
+        }
+
+        .cyber-button,
+        .glass-button {
+            background: linear-gradient(120deg, var(--fd-brand), #2e7bd4 52%, var(--fd-brand-2) 100%) !important;
+            border: 1px solid rgba(13, 141, 219, 0.25) !important;
+            box-shadow: 0 12px 24px rgba(13, 141, 219, 0.28) !important;
+            color: #ffffff !important;
+        }
+
+        .workspace-shell .text-white {
+            color: #e9f2ff !important;
+        }
+
+        .workspace-shell .text-white\/70,
+        .workspace-shell .text-white\/60,
+        .workspace-shell .text-white\/50,
+        .workspace-shell .text-white\/40 {
+            color: #9fb1ca !important;
+        }
+
+        .workspace-shell .cyber-button.text-white,
+        .workspace-shell .glass-button.text-white,
+        .workspace-shell .tab-btn.glass-button.text-white {
+            color: #ffffff !important;
+        }
+
+        .cyber-button:hover,
+        .glass-button:hover {
+            transform: translateY(-2px);
+            filter: saturate(1.05);
+            box-shadow: 0 16px 28px rgba(13, 141, 219, 0.34) !important;
+        }
+
+        .brand-title {
+            font-family: 'Sora', 'Manrope', sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.035em;
+            color: #eff6ff;
+            text-shadow: none !important;
+        }
+
+        .brand-gradient {
+            color: #66d2ff;
+        }
+
+        @supports (-webkit-background-clip: text) {
+            .brand-gradient {
+                background: linear-gradient(120deg, #66d2ff 0%, #1fa5ff 45%, #f4b452 100%) !important;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+        }
+
+        .tab-btn {
+            border: 1px solid rgba(19, 33, 54, 0.14) !important;
+            color: #c9d9ef !important;
+            background: rgba(10, 18, 33, 0.78) !important;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .tab-btn.glass-button {
+            color: #ffffff !important;
+            background: linear-gradient(120deg, #0d8ddb, #126dc2) !important;
+        }
+
+        #downloadsList .bg-white\/10,
+        #historyList .bg-white\/10,
+        #downloadsList .bg-slate-800\/60,
+        #historyList .bg-slate-800\/60 {
+            background: rgba(12, 22, 39, 0.88) !important;
+            border: 1px solid rgba(98, 146, 219, 0.22) !important;
+            color: #e5f0ff !important;
+        }
+
+        #downloads-content,
+        #history-content {
+            background: linear-gradient(180deg, rgba(9, 18, 34, 0.64), rgba(10, 22, 38, 0.45));
+            border: 1px solid rgba(98, 146, 219, 0.2);
+            border-radius: 14px;
+            padding: 0.45rem;
+        }
+
+        .animate-pulse-glow {
+            animation: none;
+        }
+
+        .panel-enter {
+            opacity: 0;
+            transform: translateY(16px) scale(0.99);
+            animation: panel-enter 560ms cubic-bezier(0.2, 0.85, 0.2, 1) forwards;
+        }
+
+        .panel-delay-1 {
+            animation-delay: 120ms;
+        }
+
+        .panel-delay-2 {
+            animation-delay: 220ms;
+        }
+
+        @keyframes panel-enter {
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        #customModal>div,
+        #bgSettingsModal>div {
+            background: linear-gradient(160deg, rgba(255, 252, 244, 0.96), rgba(255, 255, 255, 0.94)) !important;
+            border: 1px solid rgba(19, 33, 54, 0.14) !important;
+            box-shadow: var(--fd-shadow) !important;
+        }
+
+        #customModal .text-white,
+        #bgSettingsModal .text-white {
+            color: #1c2b42 !important;
+        }
+
+        #customModal .text-white\/95,
+        #bgSettingsModal .text-white\/50,
+        #bgSettingsModal .text-white\/60 {
+            color: #5f6b7e !important;
+        }
+
+        @media (max-width: 1180px) {
+            .workspace-grid {
+                grid-template-columns: 1fr;
+                gap: 0.9rem;
+            }
+
+            .min-h-screen.h-screen {
+                height: auto;
+                min-height: 100vh;
+            }
+
+            .workspace-shell {
+                padding-left: 0.6rem;
+                padding-right: 0.6rem;
+            }
+        }
+
+        @media (max-width: 640px) {
+            #bgSettingsModal .max-w-2xl {
+                margin-top: 0.7rem;
+                margin-bottom: 0.7rem;
+                max-height: 96vh;
+            }
+
+            .cyber-card.rounded-3xl,
+            .cyber-card.rounded-2xl {
+                border-radius: 1rem;
+                padding: 0.95rem;
+            }
+
+            .fixed.top-6.right-6 {
+                top: 0.55rem;
+                right: 0.55rem;
+            }
+        }
+
+        /* Apple-inspired UI override */
+        .apple-inspired {
+            max-width: 1220px;
+            font-size: 15px;
+        }
+
+        .apple-mode #particles {
+            display: none;
+        }
+
+        body {
+            background: linear-gradient(180deg, #f7f7f8 0%, #f2f2f4 100%) !important;
+        }
+
+        body::before {
+            display: none;
+        }
+
+        .apple-inspired * {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        /* Keep Font Awesome glyphs intact */
+        .apple-inspired .fa,
+        .apple-inspired .fas,
+        .apple-inspired .far,
+        .apple-inspired .fab,
+        .apple-inspired i[class^="fa"],
+        .apple-inspired i[class*=" fa-"] {
+            font-family: "Font Awesome 6 Free" !important;
+            font-style: normal;
+        }
+
+        .apple-inspired .fab {
+            font-family: "Font Awesome 6 Brands" !important;
+        }
+
+        .apple-inspired .brand-title,
+        .apple-inspired .brand-gradient {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-text-fill-color: initial !important;
+            background: none !important;
+            color: #1f6ee9 !important;
+            letter-spacing: -0.035em;
+        }
+
+        .apple-inspired .brand-gradient {
+            color: #1f6ee9 !important;
+        }
+
+        .apple-hero {
+            padding-top: 1.9rem;
+            padding-bottom: 1.55rem;
+        }
+
+        .apple-eyebrow {
+            color: #1c5cc9;
+            font-weight: 700;
+            font-size: clamp(2.2rem, 6.2vw, 4.6rem);
+            line-height: 0.95;
+            letter-spacing: -0.038em;
+            margin-bottom: 0.35rem;
+        }
+
+        .apple-title {
+            color: #1d1d1f;
+            font-size: clamp(2.1rem, 5.6vw, 4.4rem);
+            line-height: 0.95;
+            font-weight: 700;
+            letter-spacing: -0.048em;
+            margin: 0;
+        }
+
+        .apple-subtitle {
+            color: #4d4d52 !important;
+            font-size: clamp(0.95rem, 1.5vw, 1.25rem);
+            margin-top: 0.8rem;
+            font-weight: 500;
+        }
+
+        .apple-inspired .workspace-grid {
+            grid-template-columns: minmax(360px, 0.95fr) minmax(480px, 1.05fr);
+            gap: 1.2rem;
+        }
+
+        .apple-inspired .cyber-card {
+            background: rgba(255, 255, 255, 0.95) !important;
+            border: 1px solid rgba(0, 0, 0, 0.08) !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06) !important;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+
+        .apple-inspired .cyber-input {
+            background: rgba(255, 255, 255, 0.84) !important;
+            border: 1px solid rgba(0, 0, 0, 0.16) !important;
+            color: #1d1d1f !important;
+        }
+
+        .apple-inspired .cyber-input::placeholder {
+            color: #6e6e73 !important;
+        }
+
+        .apple-inspired .cyber-button,
+        .apple-inspired .glass-button,
+        .apple-inspired .tab-btn.glass-button {
+            background: #0a74da !important;
+            border: 1px solid rgba(10, 116, 218, 0.75) !important;
+            color: #fff !important;
+            border-radius: 9999px !important;
+            box-shadow: 0 6px 14px rgba(10, 116, 218, 0.28) !important;
+        }
+
+        .apple-inspired .cyber-button:hover,
+        .apple-inspired .glass-button:hover {
+            background: #0071e3 !important;
+            transform: translateY(-1px);
+        }
+
+        .apple-inspired .tab-btn {
+            border-radius: 12px !important;
+            background: rgba(255, 255, 255, 0.8) !important;
+            color: #1d1d1f !important;
+            border: 1px solid rgba(0, 0, 0, 0.12) !important;
+            font-size: 0.96rem;
+        }
+
+        .apple-inspired .cyber-button {
+            font-size: 1.02rem !important;
+        }
+
+        .apple-inspired #urlInput,
+        .apple-inspired #manualCookiesText,
+        .apple-inspired #browserSelect {
+            font-size: 1rem !important;
+        }
+
+        .apple-inspired .text-white {
+            color: #1d1d1f !important;
+        }
+
+        .apple-inspired .text-white\/70,
+        .apple-inspired .text-white\/60,
+        .apple-inspired .text-white\/50,
+        .apple-inspired .text-white\/40 {
+            color: #6e6e73 !important;
+        }
+
+        .apple-inspired #downloads-content,
+        .apple-inspired #history-content {
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 16px;
+        }
+
+        /* When a custom background is active, make front panels more translucent. */
+        body.custom-bg .apple-inspired .cyber-card {
+            background: rgba(255, 255, 255, var(--custom-card-alpha)) !important;
+            border: 1px solid rgba(0, 0, 0, 0.12) !important;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14) !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+        }
+
+        body.custom-bg .apple-inspired #downloads-content,
+        body.custom-bg .apple-inspired #history-content {
+            background: rgba(255, 255, 255, var(--custom-pane-alpha)) !important;
+            border: 1px solid rgba(0, 0, 0, 0.14) !important;
+        }
+
+        body.custom-bg .apple-inspired .cyber-input,
+        body.custom-bg .apple-inspired #browserSelect,
+        body.custom-bg .apple-inspired #manualCookiesText {
+            background: rgba(255, 255, 255, var(--custom-input-alpha)) !important;
+            border: 1px solid rgba(0, 0, 0, 0.20) !important;
+        }
+
+        body.custom-bg .apple-inspired .tab-btn {
+            background: rgba(255, 255, 255, var(--custom-tab-alpha)) !important;
+            border: 1px solid rgba(0, 0, 0, 0.15) !important;
+        }
+
+        body.custom-bg .apple-inspired .tab-btn.glass-button,
+        body.custom-bg .apple-inspired .tab-btn.glass-button i,
+        body.custom-bg .apple-inspired .tab-btn.glass-button span {
+            background: #0a74da !important;
+            color: #ffffff !important;
+            border-color: rgba(10, 116, 218, 0.82) !important;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.14);
+        }
+
+        .apple-mode #errorMsg {
+            background: #fff1f2 !important;
+            border: 1px solid #fecdd3 !important;
+            border-left: 4px solid #dc2626 !important;
+            color: #991b1b !important;
+            box-shadow: 0 6px 18px rgba(220, 38, 38, 0.08);
+        }
+
+        .apple-mode #errorMsg #errorText {
+            color: #991b1b !important;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        .apple-mode #errorMsg button {
+            color: #b91c1c !important;
+        }
+
+        .apple-inspired #browserSelect,
+        .apple-inspired #manualCookiesText,
+        .apple-inspired #bg-image-url,
+        .apple-inspired #bg-video-url {
+            background: #ffffff !important;
+            color: #1d1d1f !important;
+            border: 1px solid rgba(0, 0, 0, 0.16) !important;
+        }
+
+        .apple-inspired #autoCookiesArea .relative.group select option {
+            background: #ffffff;
+            color: #1d1d1f;
+        }
+
+        .apple-mode #bgSettingsModal {
+            background: rgba(0, 0, 0, 0.35) !important;
+            backdrop-filter: blur(8px) !important;
+        }
+
+        .apple-mode #bgSettingsModal > div {
+            background: rgba(255, 255, 255, 0.96) !important;
+            border: 1px solid rgba(0, 0, 0, 0.12) !important;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2) !important;
+            max-height: calc(100vh - 40px) !important;
+            overflow: hidden !important;
+            width: min(760px, 92vw) !important;
+            padding: 0.8rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .cyber-card {
+            background: #f7f8fa !important;
+            border: 1px solid rgba(0, 0, 0, 0.12) !important;
+            box-shadow: none !important;
+            padding: 0.72rem !important;
+        }
+
+        .apple-mode #bgSettingsModal h3 {
+            font-size: 1.72rem !important;
+        }
+
+        .apple-mode #bgSettingsModal label,
+        .apple-mode #bgSettingsModal .font-bold {
+            font-size: 0.9rem !important;
+        }
+
+        .apple-mode #bgSettingsModal input,
+        .apple-mode #bgSettingsModal button,
+        .apple-mode #bgSettingsModal p,
+        .apple-mode #bgSettingsModal span {
+            font-size: 0.84rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .space-y-6 > * + * {
+            margin-top: 0.58rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .mb-8 {
+            margin-bottom: 0.68rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .mb-6 {
+            margin-bottom: 0.55rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .mt-8 {
+            margin-top: 0.62rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .py-4 {
+            padding-top: 0.52rem !important;
+            padding-bottom: 0.52rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .py-3 {
+            padding-top: 0.45rem !important;
+            padding-bottom: 0.45rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .w-16.h-16 {
+            width: 2.5rem !important;
+            height: 2.5rem !important;
+            font-size: 1.2rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .w-12.h-12 {
+            width: 2.1rem !important;
+            height: 2.1rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .text-2xl {
+            font-size: 1.1rem !important;
+        }
+
+        .apple-mode #bgSettingsModal input[type="range"] {
+            height: 1.25rem;
+        }
+
+        .apple-mode #bgSettingsModal .max-w-2xl {
+            max-width: 760px !important;
+        }
+
+        .apple-mode #bgSettingsModal .rounded-3xl {
+            border-radius: 1.2rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .rounded-2xl {
+            border-radius: 0.9rem !important;
+        }
+
+        .apple-mode #bgSettingsModal .text-3xl {
+            font-size: 1.72rem !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.01em;
+        }
+
+        .apple-mode #bgSettingsModal #bg-tab-image,
+        .apple-mode #bgSettingsModal #bg-tab-video {
+            min-height: 40px !important;
+            padding-top: 0.45rem !important;
+            padding-bottom: 0.45rem !important;
+            font-size: 0.9rem !important;
+        }
+
+        .apple-mode #bgSettingsModal #bg-content-image .cyber-card,
+        .apple-mode #bgSettingsModal #bg-content-video .cyber-card {
+            background: #f2f5fa !important;
+            border-color: rgba(30, 64, 175, 0.16) !important;
+        }
+
+        .apple-mode #bgSettingsModal #bg-image-url,
+        .apple-mode #bgSettingsModal #bg-video-url {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border: 1px solid rgba(100, 116, 139, 0.35) !important;
+        }
+
+        .apple-mode #bgSettingsModal #bg-image-url::placeholder,
+        .apple-mode #bgSettingsModal #bg-video-url::placeholder {
+            color: #64748b !important;
+        }
+
+        .apple-mode #bgSettingsModal .text-white\/50,
+        .apple-mode #bgSettingsModal .text-white\/60,
+        .apple-mode #bgSettingsModal .text-white\/40 {
+            color: #64748b !important;
+        }
+
+        .apple-mode #bgSettingsModal .text-cyan-400 {
+            color: #0284c7 !important;
+        }
+
+        .apple-mode #bgSettingsModal .text-yellow-400 {
+            color: #ca8a04 !important;
+        }
+
+        .apple-mode #bgSettingsModal #bg-brightness,
+        .apple-mode #bgSettingsModal #bg-video-brightness {
+            accent-color: #0a74da;
+        }
+
+        .apple-inspired #bgSettingsModal .text-white,
+        .apple-inspired #bgSettingsModal .text-white\/60,
+        .apple-inspired #bgSettingsModal .text-white\/50 {
+            color: #1d1d1f !important;
+        }
+
+        .apple-inspired #bgSettingsModal .glass-button,
+        .apple-inspired #bgSettingsModal .cyber-button {
+            border-radius: 12px !important;
+        }
+
+        @media (max-width: 980px) {
+            .apple-inspired .workspace-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .apple-hero {
+                padding-top: 1rem;
+            }
+
+            .apple-mode #bgSettingsModal > div {
+                width: min(94vw, 680px) !important;
+                max-height: 92vh !important;
+                overflow-y: auto !important;
+            }
+        }
     </style>
 </head>
 
-<body class="min-h-screen relative overflow-hidden">
+<body class="apple-mode min-h-screen relative overflow-hidden">
 
     <!-- CINEMATIC BACKGROUND (Dynamic) -->
     <div id="parallax-bg" class="fixed inset-0 w-full h-full z-0" style="will-change: transform;">
@@ -176,7 +824,7 @@
     </button>
 
     <!-- Custom Modal System (Alert/Confirm) -->
-    <div id="customModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+    <div id="customModal" class="fixed inset-0 z-[90] hidden items-center justify-center p-4"
         style="background: rgba(0,0,0,0.85); backdrop-filter: blur(15px);">
         <div class="rounded-3xl p-8 max-w-md w-full relative overflow-hidden"
             style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2)); backdrop-filter: blur(25px); border: 2px solid rgba(255, 255, 255, 0.3); box-shadow: 0 25px 70px rgba(0,0,0,0.6);">
@@ -219,9 +867,9 @@
     </div>
 
     <!-- Background Settings Modal -->
-    <div id="bgSettingsModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 overflow-y-auto"
+    <div id="bgSettingsModal" class="fixed inset-0 z-[80] hidden items-center justify-center p-4"
         style="background: rgba(0,0,0,0.90); backdrop-filter: blur(20px);">
-        <div class="rounded-3xl p-6 max-w-2xl w-full relative my-8 max-h-[90vh] overflow-y-auto"
+        <div class="rounded-3xl p-3 max-w-2xl w-full relative my-2"
             style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95)); backdrop-filter: blur(30px); border: 2px solid rgba(6, 182, 212, 0.3); box-shadow: 0 25px 80px rgba(6, 182, 212, 0.3);">
 
             <!-- Header -->
@@ -315,6 +963,20 @@
                 </div>
             </div>
 
+            <!-- Front Opacity Control -->
+            <div class="cyber-card rounded-2xl p-6 mt-4">
+                <label class="block text-white font-bold mb-3">
+                    <i class="fas fa-layer-group text-cyan-400 mr-2"></i> Opacidad de Paneles
+                </label>
+                <input type="range" id="bg-panel-opacity" min="35" max="95" value="76" class="w-full"
+                    oninput="updatePanelOpacity(this.value, true)" />
+                <div class="flex justify-between text-white/50 text-xs mt-2">
+                    <span>Más transparente</span>
+                    <span id="panel-opacity-value">76%</span>
+                    <span>Más sólido</span>
+                </div>
+            </div>
+
             <!-- Action Buttons -->
             <div class="flex gap-4 mt-8">
                 <button onclick="resetBackground()"
@@ -332,26 +994,19 @@
     </div>
 
     <!-- MAIN SPLIT-SCREEN CONTAINER -->
-    <div class="min-h-screen h-screen flex flex-col relative z-20">
+    <div class="workspace-shell apple-inspired min-h-screen h-screen flex flex-col relative z-20">
 
         <!-- CENTERED HEADER -->
-        <div class="text-center py-8 px-4">
-            <h1 class="text-5xl md:text-6xl font-black text-white mb-2"
-                style="text-shadow: 0 0 40px rgba(34, 211, 238, 0.6), 0 0 80px rgba(168, 85, 247, 0.4);">
-                Flux<span
-                    class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400">Downloader</span>
-            </h1>
-            <p class="text-white/70 text-base font-light tracking-wide">
-                Premium Media Downloader
-            </p>
+        <div class="apple-hero text-center px-4">
+            <p class="apple-eyebrow">FluxDownloader Pro</p>
         </div>
 
         <!-- TWO COLUMN LAYOUT -->
-        <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4 overflow-hidden">
+        <div class="workspace-grid flex-1 px-4 pb-4 overflow-hidden">
 
             <!-- LEFT PANEL: INPUT & ANALYSIS -->
             <div class="flex flex-col overflow-y-auto pr-2" style="scroll-behavior: smooth;">
-                <div class="cyber-card rounded-3xl p-6 shadow-2xl animate-pulse-glow h-fit">
+                <div class="cyber-card panel-enter panel-delay-1 rounded-3xl p-6 shadow-2xl animate-pulse-glow h-fit">
                     <div class="space-y-6">
                         <!-- Input URL + Button -->
                         <div class="flex flex-col gap-4">
@@ -359,7 +1014,7 @@
                             <div class="flex-1">
                                 <div class="relative">
                                     <i class="fas fa-link absolute top-4 left-4 text-cyan-400 text-lg"></i>
-                                    <input type="text" id="urlInput" placeholder="Enter media URL here..."
+                                    <input type="text" id="urlInput" placeholder="Pega aqui la URL del video o playlist"
                                         class="cyber-input w-full pl-12 pr-12 py-4 rounded-2xl text-white placeholder-white/40 text-base font-medium" />
                                     <button onclick="pasteFromClipboard()"
                                         class="absolute top-3 right-3 p-2 text-white/60 hover:text-cyan-400 transition"
@@ -388,7 +1043,7 @@
                         <!-- Cookies Section (Collapsible) -->
                         <details class="group">
                             <summary
-                                class="cursor-pointer text-white/60 text-sm hover:text-white/80 transition flex items-center gap-2">
+                                class="cursor-pointer text-sm transition flex items-center gap-2" style="color:#5f6b7e;">
                                 <i class="fas fa-cog text-xs"></i>
                                 <span>Advanced Settings</span>
                                 <i class="fas fa-chevron-down text-xs transition-transform group-open:rotate-180"></i>
@@ -521,7 +1176,7 @@
 
             <!-- RIGHT PANEL: DOWNLOADS & HISTORY -->
             <div class="flex flex-col overflow-hidden">
-                <div class="cyber-card rounded-2xl p-4 border border-white/20 shadow-2xl bg-black/40 flex flex-col h-full">
+                <div class="cyber-card panel-enter panel-delay-2 rounded-2xl p-4 border border-white/20 shadow-2xl bg-black/40 flex flex-col h-full">
                     <!-- Tabs -->
                     <div class="flex gap-2 mb-4">
                         <button onclick="showTab('downloads')" id="tab-downloads"
@@ -710,9 +1365,23 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url, cookies, browser })
                 });
-                const data = await res.json();
+                const responseText = await res.text();
+                let data = null;
+                try {
+                    data = responseText ? JSON.parse(responseText) : {};
+                } catch {
+                    data = { error: responseText };
+                }
 
-                if (!res.ok) throw new Error(data.error);
+                if (!res.ok) {
+                    const fallback = `Error ${res.status} en /analyze`;
+                    const raw = (data && data.error) ? String(data.error) : fallback;
+                    // Avoid dumping full HTML pages in UI while still surfacing backend failure.
+                    const clean = raw.includes('<!doctype') || raw.includes('<html')
+                        ? `${fallback}. El backend devolvió una página de error (revisa logs del servidor).`
+                        : raw;
+                    throw new Error(clean);
+                }
 
                 currentSessionId = data.session_id;
 
@@ -1740,6 +2409,13 @@
             // Lazy load settings for current tab only
             setTimeout(() => {
                 const brightness = localStorage.getItem('bg-brightness') || '60';
+                const panelOpacity = localStorage.getItem('bg-panel-opacity') || '76';
+                const panelOpacityInput = document.getElementById('bg-panel-opacity');
+                if (panelOpacityInput) {
+                    panelOpacityInput.value = panelOpacity;
+                }
+                updatePanelOpacity(panelOpacity, false);
+
                 if (tab === 'image') {
                     const imageUrl = localStorage.getItem('bg-image-url') || '';
                     document.getElementById('bg-image-url').value = imageUrl;
@@ -1755,7 +2431,8 @@
         }
 
         async function handleImageUpload(event) {
-            const file = event.target.files[0];
+            const fileInput = event.target;
+            const file = fileInput.files[0];
             if (!file) return;
 
             // Check file size
@@ -1783,6 +2460,7 @@
 
                     if (result.success) {
                         urlInput.value = result.url;
+                        await applyImageBackground(result.url, document.getElementById('bg-brightness').value, false);
                         showAlert(
                             `✅ Imagen subida al servidor (${(result.size / 1024 / 1024).toFixed(1)}MB).\n\n` +
                             `Se guardó en: ${result.filename}\n\n` +
@@ -1814,16 +2492,20 @@
                 // Use async file reading
                 const result = await readFileAsDataURL(file);
                 urlInput.value = result;
+                await applyImageBackground(result, document.getElementById('bg-brightness').value, false);
             } catch (error) {
                 urlInput.value = originalValue;
                 showAlert('Error al cargar la imagen: ' + error.message, '❌ Error');
             } finally {
                 urlInput.disabled = false;
+                // Allow selecting the same file again if needed.
+                fileInput.value = '';
             }
         }
 
         async function handleVideoUpload(event) {
-            const file = event.target.files[0];
+            const fileInput = event.target;
+            const file = fileInput.files[0];
             if (!file) return;
 
             // Check file size
@@ -1887,6 +2569,8 @@
                 showAlert('Error al cargar el video: ' + error.message, '❌ Error');
             } finally {
                 urlInput.disabled = false;
+                // Allow selecting the same file again if needed.
+                fileInput.value = '';
             }
         }
 
@@ -1908,7 +2592,59 @@
             document.getElementById('video-brightness-value').textContent = value + '%';
         }
 
-        function applyBackgroundSettings() {
+        function updatePanelOpacity(value, persist = true) {
+            const safeValue = Math.max(35, Math.min(95, parseInt(value || '76', 10)));
+            const ratio = safeValue / 100;
+            const paneRatio = Math.max(0.30, Math.min(0.90, ratio - 0.14));
+            const inputRatio = Math.max(0.32, Math.min(0.92, ratio - 0.12));
+            const tabRatio = Math.max(0.28, Math.min(0.88, ratio - 0.21));
+
+            const rootStyle = document.documentElement.style;
+            rootStyle.setProperty('--custom-card-alpha', ratio.toFixed(2));
+            rootStyle.setProperty('--custom-pane-alpha', paneRatio.toFixed(2));
+            rootStyle.setProperty('--custom-input-alpha', inputRatio.toFixed(2));
+            rootStyle.setProperty('--custom-tab-alpha', tabRatio.toFixed(2));
+
+            const label = document.getElementById('panel-opacity-value');
+            if (label) {
+                label.textContent = `${safeValue}%`;
+            }
+
+            if (persist) {
+                localStorage.setItem('bg-panel-opacity', String(safeValue));
+            }
+        }
+
+        async function applyImageBackground(imageUrl, brightness, saveToStorage = true) {
+            if (!imageUrl) {
+                throw new Error('URL de imagen vacía');
+            }
+
+            const bgImage = document.getElementById('bg-image');
+            const bgVideo = document.getElementById('bg-video');
+
+            await new Promise((resolve, reject) => {
+                const probe = new Image();
+                probe.onload = resolve;
+                probe.onerror = () => reject(new Error('No se pudo cargar la imagen. Revisa el archivo o la URL.'));
+                probe.src = imageUrl;
+            });
+
+            bgImage.src = imageUrl;
+            bgImage.style.filter = `brightness(${brightness / 100})`;
+            bgImage.classList.remove('hidden');
+            bgVideo.classList.add('hidden');
+            bgVideo.pause();
+            document.body.classList.add('custom-bg');
+
+            if (saveToStorage) {
+                localStorage.setItem('bg-type', 'image');
+                localStorage.setItem('bg-image-url', imageUrl);
+                localStorage.setItem('bg-brightness', brightness);
+            }
+        }
+
+        async function applyBackgroundSettings() {
             const activeTab = document.getElementById('bg-tab-image').classList.contains('glass-button') ? 'image' : 'video';
 
             if (activeTab === 'image') {
@@ -1920,20 +2656,12 @@
                     return;
                 }
 
-                // Apply image background
-                const bgImage = document.getElementById('bg-image');
-                const bgVideo = document.getElementById('bg-video');
-
-                bgImage.src = imageUrl;
-                bgImage.style.filter = `brightness(${brightness / 100})`;
-                bgImage.classList.remove('hidden');
-                bgVideo.classList.add('hidden');
-                bgVideo.pause();
-
-                // Save to localStorage
-                localStorage.setItem('bg-type', 'image');
-                localStorage.setItem('bg-image-url', imageUrl);
-                localStorage.setItem('bg-brightness', brightness);
+                try {
+                    await applyImageBackground(imageUrl, brightness, true);
+                } catch (error) {
+                    showAlert(error.message || 'No se pudo aplicar la imagen de fondo', '❌ Error');
+                    return;
+                }
 
                 showAlert('✨ Fondo de imagen aplicado correctamente', '✓ Éxito');
             } else {
@@ -1954,6 +2682,7 @@
                 bgVideo.classList.remove('hidden');
                 bgVideo.play().catch(e => console.log('Video autoplay failed:', e));
                 bgImage.classList.add('hidden');
+                document.body.classList.add('custom-bg');
 
                 // Save to localStorage
                 localStorage.setItem('bg-type', 'video');
@@ -1977,6 +2706,7 @@
             bgVideo.classList.add('hidden');
             bgVideo.pause();
             bgVideo.src = '';
+            document.body.classList.remove('custom-bg');
 
             // Clear localStorage
             localStorage.removeItem('bg-type');
@@ -2025,6 +2755,7 @@
         function initializeBackground() {
             const bgType = localStorage.getItem('bg-type');
             const brightness = localStorage.getItem('bg-brightness') || '60';
+            updatePanelOpacity(localStorage.getItem('bg-panel-opacity') || '76', false);
 
             if (bgType === 'image') {
                 const imageUrl = localStorage.getItem('bg-image-url');
@@ -2032,6 +2763,7 @@
                     const bgImage = document.getElementById('bg-image');
                     bgImage.src = imageUrl;
                     bgImage.style.filter = `brightness(${brightness / 100})`;
+                    document.body.classList.add('custom-bg');
                 }
             } else if (bgType === 'video') {
                 const videoUrl = localStorage.getItem('bg-video-url');
@@ -2044,7 +2776,10 @@
                     bgVideo.classList.remove('hidden');
                     bgVideo.play().catch(e => console.log('Video autoplay failed:', e));
                     bgImage.classList.add('hidden');
+                    document.body.classList.add('custom-bg');
                 }
+            } else {
+                document.body.classList.remove('custom-bg');
             }
         }
 

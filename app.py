@@ -7,8 +7,12 @@ import re
 import shutil
 import json
 import time
+import sys
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, render_template, request, jsonify, send_file, after_this_request
+from werkzeug.utils import secure_filename
 import yt_dlp
 from utils import cookie_utils # Import our new module
 
@@ -26,6 +30,38 @@ for path in possible_ffmpeg_paths:
     if os.path.isdir(path) and path not in os.environ['PATH']:
         os.environ['PATH'] += os.pathsep + path
         logger.info(f"Added to PATH: {path}")
+
+def detect_ffmpeg_location():
+    """Return FFmpeg bin directory if available, otherwise None."""
+    ffmpeg_exe = shutil.which('ffmpeg')
+    if ffmpeg_exe:
+        return os.path.dirname(ffmpeg_exe)
+
+    candidates = [
+        os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\WinGet\Links\ffmpeg.exe'),
+        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return os.path.dirname(candidate)
+
+    # Portable fallback: use bundled binary from imageio-ffmpeg if installed.
+    try:
+        import imageio_ffmpeg
+        bundled_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if bundled_exe and os.path.exists(bundled_exe):
+            return os.path.dirname(bundled_exe)
+    except Exception:
+        pass
+
+    return None
+
+FFMPEG_LOCATION = detect_ffmpeg_location()
+if FFMPEG_LOCATION:
+    logger.info(f"Using FFmpeg from: {FFMPEG_LOCATION}")
+else:
+    logger.warning("FFmpeg not detected. Some formats may fail to post-process.")
 # ------------------------------------------------------------------
 
 app = Flask(__name__)
@@ -34,8 +70,11 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, 'data', 'history.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'config.json')
+BACKGROUNDS_DIR = os.path.join(BASE_DIR, 'static', 'backgrounds')
+DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2
 
 # Load Config
+config = {}
 TEMP_DOWNLOADS_DIR = os.path.join(BASE_DIR, 'temp_downloads') # Default
 if os.path.exists(CONFIG_FILE):
     try:
@@ -46,10 +85,27 @@ if os.path.exists(CONFIG_FILE):
     except Exception as e:
         logger.error(f"Error loading config: {e}")
 
+MAX_CONCURRENT_DOWNLOADS = int(
+    os.environ.get(
+        'MAX_CONCURRENT_DOWNLOADS',
+        config.get('max_concurrent_downloads', DEFAULT_MAX_CONCURRENT_DOWNLOADS)
+    )
+)
+if MAX_CONCURRENT_DOWNLOADS < 1:
+    MAX_CONCURRENT_DOWNLOADS = DEFAULT_MAX_CONCURRENT_DOWNLOADS
+
 # Ensure directory exists
 os.makedirs(TEMP_DOWNLOADS_DIR, exist_ok=True)
+os.makedirs(BACKGROUNDS_DIR, exist_ok=True)
 download_progress = {}
 abort_signals = {}
+download_futures = {}
+history_lock = threading.RLock()
+download_state_lock = threading.RLock()
+download_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_DOWNLOADS,
+    thread_name_prefix='download-worker'
+)
 
 # Ensure temp dirs exist
 os.makedirs(TEMP_DOWNLOADS_DIR, exist_ok=True)
@@ -59,42 +115,91 @@ def get_cookies_path(session_id):
     os.makedirs(cookies_dir, exist_ok=True)
     return os.path.join(cookies_dir, f"temp_cookies_{session_id}.txt")
 
-def load_history():
+def _load_history_unlocked():
     if not os.path.exists(HISTORY_FILE):
         return []
     try:
         with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except:
+    except Exception:
         return []
 
-def save_history_entry(entry):
-    history = load_history()
-    # Check duplicates by ID or URL? Let's use ID or timestamp.
-    # Add to top
-    history.insert(0, entry)
+def _write_history_unlocked(history):
+    with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(history, f, indent=2)
+
+def set_download_progress(download_id, patch):
+    with download_state_lock:
+        current = download_progress.get(download_id, {})
+        current.update(patch)
+        download_progress[download_id] = current
+
+def get_queue_stats():
+    with download_state_lock:
+        active = 0
+        queued = 0
+        finished_ids = []
+        for download_id, future in download_futures.items():
+            if future.running():
+                active += 1
+            elif future.done():
+                finished_ids.append(download_id)
+            else:
+                queued += 1
+
+        for download_id in finished_ids:
+            download_futures.pop(download_id, None)
+
+        return {
+            'max_workers': MAX_CONCURRENT_DOWNLOADS,
+            'active': active,
+            'queued': queued,
+            'tracked': len(download_futures),
+        }
+
+def _is_within_path(path_value, base_path):
     try:
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save history: {e}")
+        return os.path.commonpath([os.path.abspath(path_value), os.path.abspath(base_path)]) == os.path.abspath(base_path)
+    except Exception:
+        return False
+
+def load_history():
+    with history_lock:
+        return _load_history_unlocked()
+
+def save_history_entry(entry):
+    with history_lock:
+        history = _load_history_unlocked()
+        existing_index = next(
+            (i for i, item in enumerate(history) if item.get('download_id') == entry.get('download_id')),
+            None
+        )
+        if existing_index is None:
+            history.insert(0, entry)
+        else:
+            history[existing_index].update(entry)
+
+        try:
+            _write_history_unlocked(history)
+        except Exception as e:
+            logger.error(f"Failed to save history: {e}")
 
 def update_history_status(download_id, status, file_path=None):
-    history = load_history()
-    updated = False
-    for item in history:
-        if item.get('download_id') == download_id:
-            item['status'] = status
-            if file_path:
-                item['file_path'] = file_path
-            updated = True
-            break
-    if updated:
-        try:
-            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-                json.dump(history, f, indent=2)
-        except:
-            pass
+    with history_lock:
+        history = _load_history_unlocked()
+        updated = False
+        for item in history:
+            if item.get('download_id') == download_id:
+                item['status'] = status
+                if file_path:
+                    item['file_path'] = file_path
+                updated = True
+                break
+        if updated:
+            try:
+                _write_history_unlocked(history)
+            except Exception:
+                pass
 
 def normalize_uploader_name(uploader):
     """
@@ -172,6 +277,39 @@ def format_bytes(size):
         count += 1
     return f"{n:.2f} {power_labels[count]}B"
 
+def sanitize_ytdlp_error(raw_error, source_url=None):
+    """Extract a concise human-readable error from verbose yt-dlp stderr."""
+    if not raw_error:
+        return "No se pudo analizar el enlace (error desconocido)."
+
+    clean = re.sub(r'\x1b\[[0-9;]*m', '', raw_error)
+    lines = [line.strip() for line in clean.splitlines() if line.strip()]
+
+    # Prefer explicit ERROR line from yt-dlp.
+    error_line = next((line for line in lines if line.startswith('ERROR:')), None)
+    if not error_line:
+        # Fallback to first non-debug line.
+        error_line = next((line for line in lines if not line.startswith('[debug]')), lines[0])
+
+    readable = error_line.replace('ERROR:', '').strip()
+
+    if 'HTTP Error 404' in readable or '404' in readable:
+        source = (source_url or '').lower()
+        if 'hqporner.com' in source:
+            return 'HQPorner suele requerir URL canónica. Intenta con el mismo enlace terminando en .html o con formato /hdporn/<id>. Si persiste, el video puede estar no disponible en tu región/red.'
+        return 'La URL no existe o ya no está disponible (HTTP 404). Verifica el enlace.'
+    if 'Sign in' in readable or 'login' in readable.lower():
+        return 'El sitio requiere autenticación. Intenta con cookies válidas del navegador.'
+    if 'Unsupported URL' in readable:
+        source = (source_url or '').lower()
+        if 'hqporner.com' in readable.lower() or 'hqporner.com' in source:
+            return 'HQPorner carga este video mediante un proveedor embebido no compatible o bloqueado en esta red. Prueba con otra red/VPN o usa otro enlace del sitio.'
+        return 'El enlace no es compatible con los extractores actuales.'
+    if 'Unable to download webpage' in readable:
+        return f'No se pudo descargar la página del video. Detalle: {readable}'
+
+    return readable
+
 def progress_hook(d):
     download_id = d.get('info_dict', {}).get('_download_id')
     if not download_id:
@@ -183,8 +321,6 @@ def progress_hook(d):
     if status == 'downloading':
         total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
         downloaded = d.get('downloaded_bytes', 0)
-        speed_float = d.get('speed', 0)
-        
         percent_str = d.get('_percent_str', '0%')
         # Remove ANSI codes if present (yt-dlp sometimes adds colors)
         percent_str = re.sub(r'\x1b\[[0-9;]*m', '', percent_str)
@@ -201,7 +337,7 @@ def progress_hook(d):
         if total_bytes > downloaded:
             remaining_str = format_bytes(total_bytes - downloaded)
         
-        download_progress[download_id] = {
+        set_download_progress(download_id, {
             'status': 'downloading',
             'percent': percent_str,
             'speed': speed_str,
@@ -209,14 +345,16 @@ def progress_hook(d):
             'total': total_str,
             'remaining': remaining_str,
             'filename': d.get('filename', 'Downloading...')
-        }
+        })
         
     elif status == 'finished':
         # This means the *download* part is done, but FFmpeg might merge now.
-        download_progress[download_id]['status'] = 'processing' # Custom state for UI
-        download_progress[download_id]['percent'] = '100%'
-        download_progress[download_id]['speed'] = 'Processing...'
-        download_progress[download_id]['filename'] = d.get('filename')
+        set_download_progress(download_id, {
+            'status': 'processing',
+            'percent': '100%',
+            'speed': 'Processing...',
+            'filename': d.get('filename')
+        })
 
 @app.route('/')
 def index():
@@ -262,30 +400,75 @@ def get_downloads():
 @app.route('/api/open-file', methods=['POST'])
 def open_file():
     """Abre el archivo en el explorador de Windows"""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     file_path = data.get('file_path', '')
     
     if not file_path or not os.path.exists(file_path):
         return jsonify({'error': 'Archivo no encontrado'}), 404
+
+    file_path = os.path.abspath(file_path)
+    if not _is_within_path(file_path, TEMP_DOWNLOADS_DIR):
+        return jsonify({'error': 'Ruta fuera del directorio permitido'}), 403
     
     try:
-        import subprocess
         # Abrir en explorador y seleccionar archivo
-        subprocess.Popen(f'explorer /select,"{file_path}"')
+        subprocess.Popen(['explorer', f'/select,{file_path}'])
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/upload-background', methods=['POST'])
+def upload_background():
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({'success': False, 'error': 'No se recibió ningún archivo.'}), 400
+
+    allowed_extensions = {
+        '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg',
+        '.mp4', '.webm', '.mov', '.m4v', '.avi'
+    }
+    max_size_bytes = 200 * 1024 * 1024  # 200MB
+
+    original_name = secure_filename(file.filename)
+    _, extension = os.path.splitext(original_name)
+    extension = extension.lower()
+
+    if extension not in allowed_extensions:
+        return jsonify({'success': False, 'error': 'Formato no permitido para fondo.'}), 400
+
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+
+    if file_size <= 0:
+        return jsonify({'success': False, 'error': 'El archivo está vacío.'}), 400
+
+    if file_size > max_size_bytes:
+        return jsonify({'success': False, 'error': 'El archivo excede el límite de 200MB.'}), 413
+
+    safe_name = f"bg_{uuid.uuid4().hex}{extension}"
+    target_path = os.path.join(BACKGROUNDS_DIR, safe_name)
+
+    try:
+        file.save(target_path)
+    except Exception as e:
+        logger.error(f"Background upload failed: {e}")
+        return jsonify({'success': False, 'error': 'No se pudo guardar el archivo.'}), 500
+
+    return jsonify({
+        'success': True,
+        'url': f"/static/backgrounds/{safe_name}",
+        'filename': safe_name,
+        'size': file_size,
+    })
 
 @app.route('/history/<download_id>', methods=['DELETE'])
 def delete_history_route(download_id):
     history = load_history()
     new_history = [h for h in history if h.get('download_id') != download_id]
-    with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-        json.dump(new_history, f, indent=2)
+    with history_lock:
+        _write_history_unlocked(new_history)
     return jsonify({'status': 'ok'})
-
-import subprocess
-import sys
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
@@ -305,6 +488,12 @@ def analyze():
 
     if not url:
         return jsonify({'error': 'URL is required'}), 400
+
+    # Use extraction_url for site-specific fallbacks while preserving original URL for UI/history.
+    extraction_url = url
+    hqporner_candidates = []
+    hqporner_iframe_url = None
+    hqporner_provider_blocked = False
 
     session_id = str(uuid.uuid4())
     cookies_path = get_cookies_path(session_id)
@@ -569,8 +758,70 @@ def analyze():
             logger.error(f"XNXX Traceback: {traceback.format_exc()}")
             # Fallthrough to yt-dlp
 
+    # HQPorner fallback: pages often embed video provider in iframe that generic extractor misses.
+    if 'hqporner.com' in url:
+        try:
+            # Build canonical URL candidates to avoid false 404 on non-canonical slugs.
+            hqporner_candidates = [url]
+            m = re.search(r'hqporner\.com/hdporn/([^/?#]+)', url, re.IGNORECASE)
+            if m:
+                tail = m.group(1)
+                tail_no_html = re.sub(r'\.html$', '', tail, flags=re.IGNORECASE)
+                id_match = re.match(r'(\d+)', tail_no_html)
 
-    
+                if not tail_no_html.lower().endswith('.html'):
+                    hqporner_candidates.append(f"https://hqporner.com/hdporn/{tail_no_html}.html")
+                if id_match:
+                    hqporner_candidates.append(f"https://hqporner.com/hdporn/{id_match.group(1)}")
+
+            # Keep order while deduplicating.
+            ordered = []
+            seen = set()
+            for candidate in hqporner_candidates:
+                if candidate not in seen:
+                    ordered.append(candidate)
+                    seen.add(candidate)
+            hqporner_candidates = ordered
+
+            # Prefer canonical .html candidate first when available.
+            html_candidate = next((c for c in hqporner_candidates if c.lower().endswith('.html')), None)
+            if html_candidate:
+                extraction_url = html_candidate
+
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://hqporner.com/'
+            }
+            resp = requests.get(extraction_url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            html = resp.text
+
+            iframe_match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+            if iframe_match:
+                iframe_url = iframe_match.group(1).strip()
+                if iframe_url.startswith('//'):
+                    iframe_url = f"https:{iframe_url}"
+                elif iframe_url.startswith('/'):
+                    iframe_url = f"https://hqporner.com{iframe_url}"
+
+                logger.info(f"HQPorner fallback iframe detected: {iframe_url}")
+                hqporner_iframe_url = iframe_url
+
+                # If embed provider is blocked on the current network, return a clear message.
+                try:
+                    iframe_resp = requests.get(iframe_url, headers=headers, timeout=20)
+                    iframe_text = iframe_resp.text.lower()
+                    if 'this domain has been blocked' in iframe_text:
+                        hqporner_provider_blocked = True
+                        logger.warning('HQPorner embed provider appears blocked on current network/ISP')
+                except Exception:
+                    # Continue with yt-dlp fallback even if direct iframe probe fails.
+                    pass
+        except Exception as e:
+            logger.warning(f"HQPorner fallback pre-check failed: {e}")
+
+
     if browser_source and browser_source != 'manual':
         logger.info(f"Extracting cookies for {browser_source} using cookie_utils...")
         try:
@@ -643,28 +894,54 @@ def analyze():
     # Remove 'generic:impersonate' as it might conflict with specific extractors
     # cmd.extend(['--extractor-args', 'generic:impersonate'])
 
-    cmd.append(url)
+    extract_targets = [extraction_url]
+    if hqporner_candidates:
+        for candidate in hqporner_candidates:
+            if candidate not in extract_targets:
+                extract_targets.append(candidate)
+    if hqporner_iframe_url and hqporner_iframe_url not in extract_targets:
+        extract_targets.append(hqporner_iframe_url)
 
-    logger.info(f"Executing command: {' '.join(cmd)}")
+    result = None
+    last_error_msg = ''
 
     try:
-        # Run subprocess
+        # Run subprocess with retries for site-specific candidate URLs.
         # INCREASED TIMEOUT: Browser cookie extraction can be slow
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=45, encoding='utf-8', errors='ignore')
-        
-        if result.returncode != 0:
-            error_msg = result.stderr.strip()
-            # If empty stderr but failed, maybe stdout has info or just crashed
-            if not error_msg: error_msg = "Unknown error (process failed)"
-            
-            logger.error(f"yt-dlp subprocess error: {error_msg}")
-            
+        for target in extract_targets:
+            current_cmd = cmd + [target]
+            logger.info(f"Executing command: {' '.join(current_cmd)}")
+            current_result = subprocess.run(
+                current_cmd,
+                capture_output=True,
+                text=True,
+                timeout=45,
+                encoding='utf-8',
+                errors='ignore'
+            )
+
+            if current_result.returncode == 0:
+                result = current_result
+                extraction_url = target
+                break
+
+            current_error = current_result.stderr.strip() or current_result.stdout.strip() or "Unknown error (process failed)"
+            last_error_msg = current_error
+            logger.warning(f"yt-dlp failed for target {target}: {current_error}")
+
+        if result is None:
+            error_msg = last_error_msg or "Unknown error (process failed)"
+
             # Helper for browser lock
             if "cookie" in error_msg.lower() and ("copy" in error_msg.lower() or "lock" in error_msg.lower() or "permission" in error_msg.lower()):
                 clean_error = "Error de Cookies: El navegador está bloqueado. Por favor cierra el navegador o usa el 'Modo Manual' para pegar cookies."
+            elif hqporner_provider_blocked:
+                clean_error = (
+                    'HQPorner carga este video mediante un proveedor embebido no compatible o bloqueado en esta red. '
+                    'Prueba con otra red/VPN o usa otro enlace del sitio.'
+                )
             else:
-                 # Clean ANSI codes
-                clean_error = re.sub(r'\x1b\[[0-9;]*m', '', error_msg)
+                clean_error = sanitize_ytdlp_error(error_msg, source_url=url)
 
             return jsonify({'error': clean_error}), 500
 
@@ -709,8 +986,6 @@ def analyze():
         # FALLBACK: Extract from title or URL if still unknown
         # Many sites like xgroovy.com embed the actress/pornstar name in the title or URL
         if not uploader:
-            import re
-            
             # Common pornstar/actress first names to help identify valid names
             common_actress_names = ['sia', 'angela', 'mia', 'riley', 'abella', 'lana', 'kendra', 
                                    'alexis', 'brandi', 'nicole', 'lisa', 'anna', 'emma', 'megan',
@@ -911,16 +1186,16 @@ def analyze():
 
 def run_download(url, format_id, session_id, download_id, metadata, browser_source=None, force=False):
     cookies_path = get_cookies_path(session_id)
-    
-    # Save initial history entry
+
+    # Save/update history entry
     metadata['download_id'] = download_id
     metadata['status'] = 'starting'
-    metadata['timestamp'] = str(datetime.datetime.now())
+    metadata.setdefault('timestamp', str(datetime.datetime.now()))
     # Ensure default fields
     metadata.setdefault('title', 'Unknown')
     metadata.setdefault('thumbnail', '')
     metadata.setdefault('duration', 0)
-    
+
     save_history_entry(metadata)
 
     # Unique temp dir for THIS download to avoid collision/locking
@@ -950,14 +1225,24 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         # 'referer': 'https://www.youporn.com/', # REMOVED global referer logic
         'progress_hooks': [check_abort], 
-        'ffmpeg_location': r'C:\Users\user\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin',
         'restrictfilenames': True,
         'paths': {'temp': unique_temp},
         'overwrites': force,
         'socket_timeout': 30,
         'retries': 10,
         'fragment_retries': 10,
+        'concurrent_fragment_downloads': 10, # Aumenta velocidad descargando fragmentos en paralelo
     }
+
+    aria2c_path = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WinGet', 'Links', 'aria2c.exe')
+    if os.path.exists(aria2c_path):
+        ydl_opts['external_downloader'] = aria2c_path
+        # -x 16 connections, -s 16 splits, -k 1M chunks
+        ydl_opts['external_downloader_args'] = ['-x', '16', '-s', '16', '-k', '1M']
+
+
+    if FFMPEG_LOCATION:
+        ydl_opts['ffmpeg_location'] = FFMPEG_LOCATION
 
     mode = metadata.get('mode', 'video')
 
@@ -1020,39 +1305,66 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
     ydl_opts['progress_hooks'] = [IDHook(download_id)]
 
     try:
-        download_progress[download_id] = {'status': 'starting', 'percent': '0%', 'speed': '0'}
+        set_download_progress(download_id, {'status': 'starting', 'percent': '0%', 'speed': '0'})
         
         # Force Clean: Delete if exists and force is True
         if force:
             pass
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([target_url])
+        transient_markers = ['timed out', 'timeout', 'connection reset', 'temporarily unavailable', 'http error 429']
+        max_attempts = 2
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    set_download_progress(download_id, {
+                        'status': 'retrying',
+                        'percent': '0%',
+                        'speed': f'Reintentando ({attempt}/{max_attempts})...'
+                    })
+                    time.sleep(1.5 * (attempt - 1))
+
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([target_url])
+                last_error = None
+                break
+            except Exception as inner_exc:
+                last_error = inner_exc
+                err_lower = str(inner_exc).lower()
+                if "PAUSED_BY_USER" in str(inner_exc):
+                    raise
+                if attempt >= max_attempts or not any(marker in err_lower for marker in transient_markers):
+                    raise
+                logger.warning(f"Transient download error ({attempt}/{max_attempts}) for {download_id}: {inner_exc}")
+
+        if last_error is not None:
+            raise last_error
             
-        final_status = 'finished'
-        
         # Get final filename and size from progress
-        final_info = download_progress[download_id]
+        final_info = download_progress.get(download_id, {})
         final_filename = final_info.get('filename')
         
         # Heuristic for final size if available
         final_total = final_info.get('total', '??')
 
         # Update specific fields in history BEFORE signaling finished to UI
-        history = load_history()
-        for item in history:
-            if item['download_id'] == download_id:
-                item['status'] = 'completed'
-                item['file_path'] = final_filename
-                item['size_str'] = final_total
-                break
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2)
+        with history_lock:
+            history = _load_history_unlocked()
+            for item in history:
+                if item.get('download_id') == download_id:
+                    item['status'] = 'completed'
+                    item['file_path'] = final_filename
+                    item['size_str'] = final_total
+                    break
+            _write_history_unlocked(history)
 
         # Signal completion to UI and set 100%
-        download_progress[download_id]['total'] = final_total
-        download_progress[download_id]['percent'] = '100%'
-        download_progress[download_id]['status'] = 'finished'
+        set_download_progress(download_id, {
+            'total': final_total,
+            'percent': '100%',
+            'status': 'finished'
+        })
         
     except Exception as e:
         err_msg = str(e)
@@ -1069,19 +1381,16 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         if is_win_error_32 and current_status == 'processing':
             logger.warning(f"Ignored WinError 32 during processing/cleanup for {download_id}: {err_msg}")
             # Try to assume success
-            download_progress[download_id]['status'] = 'finished'
-            download_progress[download_id]['percent'] = '100%'
+            set_download_progress(download_id, {'status': 'finished', 'percent': '100%'})
             # Update history too
             update_history_status(download_id, 'completed_with_warning')
         elif "PAUSED_BY_USER" in err_msg:
-             download_progress[download_id]['status'] = 'paused'
-             download_progress[download_id]['percent'] = 'PAUSADO'
-             download_progress[download_id]['speed'] = '0'
+             set_download_progress(download_id, {'status': 'paused', 'percent': 'PAUSADO', 'speed': '0'})
+             update_history_status(download_id, 'paused')
         else:
-            download_progress[download_id]['status'] = 'error'
             # Clean ANSI codes
             clean_error = re.sub(r'\x1b\[[0-9;]*m', '', err_msg)
-            download_progress[download_id]['error'] = clean_error
+            set_download_progress(download_id, {'status': 'error', 'error': clean_error})
             update_history_status(download_id, 'failed')
     finally:
         # Cleanup cookies if they were temp
@@ -1102,9 +1411,31 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
                     logger.warning(f"Cleanup retry failed: {e}")
                     time.sleep(1.0)
 
+def _on_download_done(download_id, future):
+    with download_state_lock:
+        download_futures.pop(download_id, None)
+
+    if future.cancelled():
+        set_download_progress(download_id, {
+            'status': 'cancelled',
+            'percent': '0%',
+            'speed': 'Cancelado antes de iniciar'
+        })
+        update_history_status(download_id, 'cancelled')
+        return
+
+    exc = future.exception()
+    if exc:
+        logger.error(f"Unhandled worker exception for {download_id}: {exc}")
+        set_download_progress(download_id, {
+            'status': 'error',
+            'error': str(exc)
+        })
+        update_history_status(download_id, 'failed')
+
 @app.route('/download', methods=['POST'])
 def download():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     url = data.get('url')
     format_id = data.get('format_id')
     session_id = data.get('session_id')
@@ -1129,21 +1460,45 @@ def download():
     # Reset abort signal for this ID
     if download_id in abort_signals:
         del abort_signals[download_id]
-        
-    download_progress[download_id] = {
-        'status': 'starting',
+
+    metadata = metadata if isinstance(metadata, dict) else {}
+    metadata['download_id'] = download_id
+    metadata.setdefault('title', 'Unknown')
+    metadata.setdefault('thumbnail', '')
+    metadata.setdefault('duration', 0)
+    metadata['status'] = 'queued'
+    metadata.setdefault('timestamp', str(datetime.datetime.now()))
+
+    save_history_entry(metadata)
+
+    set_download_progress(download_id, {
+        'status': 'queued',
         'percent': '0%',
-        'speed': 'Estimating...',
+        'speed': 'En cola...',
         'file_path': None
-    }
-    
-    thread = threading.Thread(target=run_download, args=(url, format_id, session_id, download_id, metadata, browser, force))
-    thread.start()
-    
-    return jsonify({'status': 'started', 'download_id': download_id})
+    })
+
+    with download_state_lock:
+        future = download_executor.submit(run_download, url, format_id, session_id, download_id, metadata, browser, force)
+        download_futures[download_id] = future
+        future.add_done_callback(lambda f, did=download_id: _on_download_done(did, f))
+
+    queue_stats = get_queue_stats()
+    return jsonify({'status': 'queued', 'download_id': download_id, 'queue': queue_stats})
 
 @app.route('/pause/<download_id>', methods=['POST'])
 def pause_download(download_id):
+    with download_state_lock:
+        future = download_futures.get(download_id)
+        if future and future.cancel():
+            set_download_progress(download_id, {
+                'status': 'cancelled',
+                'percent': '0%',
+                'speed': 'Cancelado antes de iniciar'
+            })
+            update_history_status(download_id, 'cancelled')
+            return jsonify({'status': 'cancelled'})
+
     abort_signals[download_id] = True
     return jsonify({'status': 'pausing'})
 
@@ -1174,6 +1529,8 @@ def download_file_route(download_id):
     # DELETE-ON-SAVE Implementation
     @after_this_request
     def remove_file(response):
+        if not _is_within_path(file_path, TEMP_DOWNLOADS_DIR):
+            return response
         try:
             os.remove(file_path)
             logger.info(f"Deleted file after download: {file_path}")
@@ -1191,9 +1548,32 @@ def progress(download_id):
         return jsonify({'error': 'Not found'}), 404
     return jsonify(status)
 
+@app.route('/queue/status', methods=['GET'])
+def queue_status():
+    return jsonify(get_queue_stats())
+
+@app.route('/health', methods=['GET'])
+def health():
+    queue = get_queue_stats()
+    writable_download_dir = os.access(TEMP_DOWNLOADS_DIR, os.W_OK)
+    history_exists = os.path.exists(HISTORY_FILE)
+
+    return jsonify({
+        'status': 'ok',
+        'time': str(datetime.datetime.now()),
+        'python': sys.version,
+        'download_dir': TEMP_DOWNLOADS_DIR,
+        'download_dir_writable': writable_download_dir,
+        'history_file': HISTORY_FILE,
+        'history_exists': history_exists,
+        'ffmpeg_location': FFMPEG_LOCATION,
+        'ffmpeg_available': bool(FFMPEG_LOCATION),
+        'queue': queue,
+    })
+
 @app.route('/move_file', methods=['POST'])
 def move_file():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     download_id = data.get('download_id')
     destination = data.get('destination')
 
@@ -1209,6 +1589,10 @@ def move_file():
     current_path = item.get('file_path')
     if not current_path or not os.path.exists(current_path):
         return jsonify({'error': 'El archivo original ya no existe en el disco'}), 404
+
+    current_path = os.path.abspath(current_path)
+    if not _is_within_path(current_path, TEMP_DOWNLOADS_DIR):
+        return jsonify({'error': 'El archivo no pertenece al directorio de descargas permitido'}), 403
 
     # Normalize paths
     destination = os.path.abspath(destination)
@@ -1229,8 +1613,8 @@ def move_file():
         
         # Update History
         item['file_path'] = new_path
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2)
+        with history_lock:
+            _write_history_unlocked(history)
             
         return jsonify({'status': 'ok', 'new_path': new_path})
     except Exception as e:
