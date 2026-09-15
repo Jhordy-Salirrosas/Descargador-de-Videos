@@ -6,7 +6,6 @@ Escanea temp_downloads, detecta videos corruptos y sincroniza con history.json
 import os
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 # Rutas
@@ -202,7 +201,7 @@ def check_corrupted_videos():
     print(f"❌ Videos corruptos: {len(corrupted)}")
     
     if corrupted:
-        print(f"\n❌ VIDEOS CORRUPTOS DETECTADOS:")
+        print("\n❌ VIDEOS CORRUPTOS DETECTADOS:")
         print("-" * 60)
         for v in corrupted:
             size_mb = v['size'] / (1024 * 1024)
@@ -303,7 +302,7 @@ def main():
         
         elif choice == '5':
             print("\n🔄 EJECUTANDO MANTENIMIENTO COMPLETO...\n")
-            sync_stats = sync_history_with_files()
+            sync_history_with_files()
             corrupted_cache, valid = check_corrupted_videos()
             clean_orphaned_history_entries()
             

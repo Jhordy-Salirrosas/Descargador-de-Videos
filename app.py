@@ -9,12 +9,14 @@ import json
 import time
 import sys
 import subprocess
+import traceback
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 import requests
 from flask import Flask, render_template, request, jsonify, send_file, after_this_request
-from werkzeug.utils import secure_filename
 import yt_dlp
-from utils import cookie_utils # Import our new module
+from yt_dlp.networking.impersonate import ImpersonateTarget
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -70,7 +72,7 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, 'data', 'history.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'config.json')
-BACKGROUNDS_DIR = os.path.join(BASE_DIR, 'static', 'backgrounds')
+PERSISTENT_COOKIES_FILE = os.path.join(BASE_DIR, 'data', 'cookies.txt')
 DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2
 
 # Load Config
@@ -88,7 +90,7 @@ if os.path.exists(CONFIG_FILE):
 MAX_CONCURRENT_DOWNLOADS = int(
     os.environ.get(
         'MAX_CONCURRENT_DOWNLOADS',
-        config.get('max_concurrent_downloads', DEFAULT_MAX_CONCURRENT_DOWNLOADS)
+        str(config.get('max_concurrent_downloads', DEFAULT_MAX_CONCURRENT_DOWNLOADS))
     )
 )
 if MAX_CONCURRENT_DOWNLOADS < 1:
@@ -96,7 +98,7 @@ if MAX_CONCURRENT_DOWNLOADS < 1:
 
 # Ensure directory exists
 os.makedirs(TEMP_DOWNLOADS_DIR, exist_ok=True)
-os.makedirs(BACKGROUNDS_DIR, exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
 download_progress = {}
 abort_signals = {}
 download_futures = {}
@@ -207,7 +209,7 @@ def normalize_uploader_name(uploader):
     - Reemplaza guiones bajos con espacios
     - Capitaliza cada palabra
     - Elimina caracteres especiales excepto espacios y guiones
-    - Retorna 'Unknown' si el nombre está vacío
+    - Retorna 'Unknown' si el nombre estÃ¡ vacÃ­o
     """
     if not uploader or uploader == 'Unknown':
         return 'Unknown'
@@ -215,13 +217,13 @@ def normalize_uploader_name(uploader):
     # Reemplazar guiones bajos con espacios
     name = uploader.replace('_', ' ')
     
-    # Eliminar caracteres especiales, mantener solo alfanuméricos, espacios y guiones
+    # Eliminar caracteres especiales, mantener solo alfanumÃ©ricos, espacios y guiones
     name = "".join([c for c in name if c.isalnum() or c in (' ', '-')]).strip()
     
     # Capitalizar cada palabra (Title Case)
     name = ' '.join(word.capitalize() for word in name.split())
     
-    # Si después de limpiar está vacío, retornar Unknown
+    # Si despuÃ©s de limpiar estÃ¡ vacÃ­o, retornar Unknown
     if not name:
         return 'Unknown'
     
@@ -234,8 +236,6 @@ def get_site_name(url):
     """
     if not url:
         return 'Unknown Site'
-    
-    from urllib.parse import urlparse
     
     try:
         parsed = urlparse(url)
@@ -257,13 +257,13 @@ def get_site_name(url):
             if site_domain in domain:
                 return site_name
         
-        # Si no está en el mapa, usar dominio principal capitalizado
+        # Si no estÃ¡ en el mapa, usar dominio principal capitalizado
         parts = domain.split('.')
         if len(parts) >= 2:
             return parts[-2].capitalize()
         
         return 'Unknown Site'
-    except:
+    except Exception:
         return 'Unknown Site'
 
 def format_bytes(size):
@@ -293,20 +293,22 @@ def sanitize_ytdlp_error(raw_error, source_url=None):
 
     readable = error_line.replace('ERROR:', '').strip()
 
+    if 'HTTP Error 410' in readable or '410' in readable:
+        return 'Este video fue eliminado del sitio y ya no estÃ¡ disponible (HTTP 410 Gone). No es posible descargarlo.'
     if 'HTTP Error 404' in readable or '404' in readable:
         source = (source_url or '').lower()
         if 'hqporner.com' in source:
-            return 'HQPorner suele requerir URL canónica. Intenta con el mismo enlace terminando en .html o con formato /hdporn/<id>. Si persiste, el video puede estar no disponible en tu región/red.'
-        return 'La URL no existe o ya no está disponible (HTTP 404). Verifica el enlace.'
+            return 'HQPorner suele requerir URL canÃ³nica. Intenta con el mismo enlace terminando en .html o con formato /hdporn/<id>. Si persiste, el video puede estar no disponible en tu regiÃ³n/red.'
+        return 'La URL no existe o ya no estÃ¡ disponible (HTTP 404). Verifica el enlace.'
     if 'Sign in' in readable or 'login' in readable.lower():
-        return 'El sitio requiere autenticación. Intenta con cookies válidas del navegador.'
+        return 'El sitio requiere autenticaciÃ³n. Intenta con cookies vÃ¡lidas del navegador.'
     if 'Unsupported URL' in readable:
         source = (source_url or '').lower()
         if 'hqporner.com' in readable.lower() or 'hqporner.com' in source:
             return 'HQPorner carga este video mediante un proveedor embebido no compatible o bloqueado en esta red. Prueba con otra red/VPN o usa otro enlace del sitio.'
         return 'El enlace no es compatible con los extractores actuales.'
     if 'Unable to download webpage' in readable:
-        return f'No se pudo descargar la página del video. Detalle: {readable}'
+        return f'No se pudo descargar la pÃ¡gina del video. Detalle: {readable}'
 
     return readable
 
@@ -358,7 +360,7 @@ def progress_hook(d):
 
 @app.route('/')
 def index():
-    return render_template('immersive.html')
+    return render_template('index.html')
 
 @app.route('/history', methods=['GET'])
 def get_history_route():
@@ -370,97 +372,59 @@ def get_history_route():
         file_path = entry.get('file_path', '')
         entry['file_exists'] = bool(file_path and os.path.exists(file_path))
         
-        # Agregar tamaño de archivo si existe
+        # Agregar tamaÃ±o de archivo si existe
         if entry['file_exists']:
             try:
                 entry['file_size'] = os.path.getsize(file_path)
-            except:
+            except Exception:
                 entry['file_size'] = 0
     
     return jsonify(history)
 
-@app.route('/api/downloads')
-def get_downloads():
-    """Retorna solo las descargas con archivos existentes"""
-    history = load_history()
-    downloads = []
-    
-    for entry in history:
-        file_path = entry.get('file_path', '')
-        if file_path and os.path.exists(file_path):
-            entry['file_exists'] = True
-            try:
-                entry['file_size'] = os.path.getsize(file_path)
-            except:
-                entry['file_size'] = 0
-            downloads.append(entry)
-    
-    return jsonify(downloads)
+# ===== COOKIE MANAGEMENT ROUTES =====
 
-@app.route('/api/open-file', methods=['POST'])
-def open_file():
-    """Abre el archivo en el explorador de Windows"""
-    data = request.get_json(silent=True) or {}
-    file_path = data.get('file_path', '')
-    
-    if not file_path or not os.path.exists(file_path):
-        return jsonify({'error': 'Archivo no encontrado'}), 404
-
-    file_path = os.path.abspath(file_path)
-    if not _is_within_path(file_path, TEMP_DOWNLOADS_DIR):
-        return jsonify({'error': 'Ruta fuera del directorio permitido'}), 403
-    
-    try:
-        # Abrir en explorador y seleccionar archivo
-        subprocess.Popen(['explorer', f'/select,{file_path}'])
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/upload-background', methods=['POST'])
-def upload_background():
+@app.route('/api/upload-cookies', methods=['POST'])
+def upload_cookies():
+    """Subir un archivo cookies.txt que se guarda persistentemente"""
     file = request.files.get('file')
     if not file or not file.filename:
-        return jsonify({'success': False, 'error': 'No se recibió ningún archivo.'}), 400
-
-    allowed_extensions = {
-        '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg',
-        '.mp4', '.webm', '.mov', '.m4v', '.avi'
-    }
-    max_size_bytes = 200 * 1024 * 1024  # 200MB
-
-    original_name = secure_filename(file.filename)
-    _, extension = os.path.splitext(original_name)
-    extension = extension.lower()
-
-    if extension not in allowed_extensions:
-        return jsonify({'success': False, 'error': 'Formato no permitido para fondo.'}), 400
-
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)
-
-    if file_size <= 0:
-        return jsonify({'success': False, 'error': 'El archivo está vacío.'}), 400
-
-    if file_size > max_size_bytes:
-        return jsonify({'success': False, 'error': 'El archivo excede el límite de 200MB.'}), 413
-
-    safe_name = f"bg_{uuid.uuid4().hex}{extension}"
-    target_path = os.path.join(BACKGROUNDS_DIR, safe_name)
-
+        return jsonify({'error': 'No se recibiÃ³ ningÃºn archivo.'}), 400
+    
     try:
-        file.save(target_path)
+        content = file.read().decode('utf-8', errors='ignore')
+        # ValidaciÃ³n bÃ¡sica: debe contener al menos una lÃ­nea no-comentario
+        valid_lines = [l for l in content.splitlines() if l.strip() and not l.startswith('#')]
+        if not valid_lines:
+            return jsonify({'error': 'El archivo no contiene cookies vÃ¡lidas.'}), 400
+        
+        with open(PERSISTENT_COOKIES_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"Cookies saved: {len(valid_lines)} entries")
+        return jsonify({'success': True, 'entries': len(valid_lines)})
     except Exception as e:
-        logger.error(f"Background upload failed: {e}")
-        return jsonify({'success': False, 'error': 'No se pudo guardar el archivo.'}), 500
+        logger.error(f"Cookie upload error: {e}")
+        return jsonify({'error': str(e)}), 500
 
-    return jsonify({
-        'success': True,
-        'url': f"/static/backgrounds/{safe_name}",
-        'filename': safe_name,
-        'size': file_size,
-    })
+@app.route('/api/cookies-status', methods=['GET'])
+def cookies_status():
+    """Retorna si hay cookies cargadas"""
+    exists = os.path.exists(PERSISTENT_COOKIES_FILE)
+    entries = 0
+    if exists:
+        try:
+            with open(PERSISTENT_COOKIES_FILE, 'r', encoding='utf-8') as f:
+                entries = len([l for l in f.readlines() if l.strip() and not l.startswith('#')])
+        except Exception:
+            pass
+    return jsonify({'has_cookies': exists, 'entries': entries})
+
+@app.route('/api/cookies', methods=['DELETE'])
+def delete_cookies():
+    """Elimina las cookies guardadas"""
+    if os.path.exists(PERSISTENT_COOKIES_FILE):
+        os.remove(PERSISTENT_COOKIES_FILE)
+    return jsonify({'status': 'ok'})
 
 @app.route('/history/<download_id>', methods=['DELETE'])
 def delete_history_route(download_id):
@@ -481,8 +445,18 @@ def analyze():
     # Fix for YouPorn 'es.' subdomain not triggering YouPornIE in yt-dlp
     if 'youporn.com' in url:
         url = url.replace('es.youporn.com', 'www.youporn.com')
-        # Also fix other common subdomains if they cause issues, but 'es' is the reported one.
         logger.info(f"Normalized URL to: {url}")
+
+    # Fix PornHub language subdomains (es., fr., de., etc.) -> www.
+    if 'pornhub.com' in url:
+        url = re.sub(r'https?://[a-z]{2}\.pornhub\.com', 'https://www.pornhub.com', url)
+        logger.info(f"Normalized PornHub URL to: {url}")
+
+    # Fix eporner language subdomains (es., fr., de., etc.) -> www.
+    # yt-dlp's EpornerIE only matches www.eporner.com
+    if 'eporner.com' in url:
+        url = re.sub(r'https?://[a-z]{2}\.eporner\.com', 'https://www.eporner.com', url)
+        logger.info(f"Normalized eporner URL to: {url}")
 
     logger.info(f"Analyze Request: URL={url}, Browser={browser_source}, CookiesLen={len(cookies_content) if cookies_content else 0}")
 
@@ -499,9 +473,166 @@ def analyze():
     cookies_path = get_cookies_path(session_id)
 
     # --- ROBUST COOKIE EXTRACTION ---
-    extracted_cookies_path = None
-    cookie_extraction_failed = False
+
     
+    # --- EPORNER CUSTOM EXTRACTOR ---
+    # yt-dlp's built-in EpornerIE works but fails on language subdomains (es., fr., etc.)
+    # We replicate the same logic here for reliability + direct URL support.
+    if 'eporner.com' in url:
+        try:
+            logger.info("Using Custom EPorner Extractor...")
+            ep_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://www.eporner.com/'
+            }
+
+            # Extract video ID from URL (pattern: /video-{id}/ or /hd-porn/{id}/ or /embed/{id})
+            vid_id_match = re.search(r'/(?:video-|hd-porn/|embed/)([A-Za-z0-9]+)', url)
+            if not vid_id_match:
+                raise Exception("No se pudo extraer el ID del video de la URL de eporner")
+            vid_id = vid_id_match.group(1)
+            logger.info(f"EPorner: Extracted video ID: {vid_id}")
+
+            # Fetch video page
+            page_resp = requests.get(url, headers=ep_headers, timeout=20)
+            page_resp.raise_for_status()
+            html = page_resp.text
+
+            # Extract title
+            title_match = re.search(r'<title>(.*?)</title>', html, re.DOTALL)
+            video_title = title_match.group(1).strip() if title_match else "EPorner Video"
+            # Clean common suffixes
+            for suffix in [' - EPORNER', ' - Eporner', ' | EPORNER']:
+                video_title = video_title.replace(suffix, '').strip()
+
+            # Extract thumbnail
+            thumb_match = re.search(r'property=["\']og:image["\'][^>]*content=["\']([^"\']+)["\']', html)
+            if not thumb_match:
+                thumb_match = re.search(r'content=["\']([^"\']+)["\'][^>]*property=["\']og:image["\']', html)
+            video_thumb = thumb_match.group(1) if thumb_match else ""
+
+            # Extract duration
+            dur_match = re.search(r'"duration"\s*:\s*"?PT?(\d+)M?(\d*)S?"?', html)
+            duration = 0
+            if dur_match:
+                try:
+                    mins = int(dur_match.group(1)) if dur_match.group(1) else 0
+                    secs = int(dur_match.group(2)) if dur_match.group(2) else 0
+                    duration = mins * 60 + secs
+                except Exception: pass
+
+            # Extract the hash needed for the API call
+            # EPorner embeds a 32-char MD5-like hash in the page JS
+            hash_match = re.search(r'hash\s*[:=]\s*["\']([a-f0-9]{32})["\']', html)
+            if not hash_match:
+                raise Exception("No se encontrÃ³ el hash de video en la pÃ¡gina de eporner")
+            vid_hash = hash_match.group(1)
+            logger.info(f"EPorner: Hash found: {vid_hash}")
+
+            # Calculate API hash (reverse-engineered from eporner's vjs.js)
+            def _encode_base36(num):
+                TABLE = '0123456789abcdefghijklmnopqrstuvwxyz'
+                if num == 0:
+                    return '0'
+                result = ''
+                while num:
+                    result = TABLE[num % 36] + result
+                    num //= 36
+                return result
+
+            def _calc_eporner_hash(s):
+                return ''.join(_encode_base36(int(s[lb:lb + 8], 16)) for lb in range(0, 32, 8))
+
+            api_hash = _calc_eporner_hash(vid_hash)
+            logger.info(f"EPorner: Calculated API hash: {api_hash}")
+
+            # Call eporner XHR API
+            api_resp = requests.get(
+                f'https://www.eporner.com/xhr/video/{vid_id}',
+                headers=ep_headers,
+                params={
+                    'hash': api_hash,
+                    'device': 'generic',
+                    'domain': 'www.eporner.com',
+                    'fallback': 'false'
+                },
+                timeout=15
+            )
+            api_resp.raise_for_status()
+            video_data = api_resp.json()
+
+            if video_data.get('available') is False:
+                msg = video_data.get('message', 'Video no disponible')
+                raise Exception(f"EPorner dijo: {msg}")
+
+            # Parse sources
+            sources = video_data.get('sources', {})
+            custom_formats = []
+
+            for kind, formats_dict in sources.items():
+                if not isinstance(formats_dict, dict):
+                    continue
+                for fmt_id, fmt_data in formats_dict.items():
+                    if not isinstance(fmt_data, dict):
+                        continue
+                    src = fmt_data.get('src', '')
+                    if not src or not src.startswith('http'):
+                        continue
+
+                    # Parse height from format label ("720p HD", "480p", "1080p", etc.)
+                    height = 0
+                    height_match = re.search(r'(\d+)[pP]', fmt_id)
+                    if height_match:
+                        height = int(height_match.group(1))
+
+                    if kind == 'hls':
+                        custom_formats.append({
+                            'id': src,
+                            'resolution': f'{height}p' if height else fmt_id,
+                            'note': 'HLS',
+                            'size': 'N/A',
+                            'height': height,
+                            'ext': 'mp4',
+                            '_url': src
+                        })
+                    else:
+                        custom_formats.append({
+                            'id': src,
+                            'resolution': f'{height}p' if height else fmt_id,
+                            'note': 'MP4',
+                            'size': 'N/A',
+                            'height': height,
+                            'ext': 'mp4',
+                            '_url': src
+                        })
+
+            if not custom_formats:
+                raise Exception("No se encontraron fuentes de video en la respuesta de la API de eporner")
+
+            # Sort by quality (highest first)
+            custom_formats.sort(key=lambda x: x['height'], reverse=True)
+
+            logger.info(f"EPorner: Found {len(custom_formats)} formats: {[f['resolution'] for f in custom_formats]}")
+
+            return jsonify({
+                'type': 'video',
+                'title': video_title,
+                'thumbnail': video_thumb,
+                'duration': duration,
+                'uploader': 'EPorner',
+                'formats': custom_formats,
+                'session_id': session_id,
+                'webpage_url': url,
+                'cookie_warning': False,
+                'is_direct': True
+            })
+
+        except Exception as e:
+            logger.error(f"Custom EPorner extraction failed: {e}")
+            logger.error(traceback.format_exc())
+            # Fallthrough to yt-dlp as backup
+
     # --- PORNOXO CUSTOM EXTRACTOR ---
     # yt-dlp fails heavily on this site, so we implement a custom valid regex parser
     if 'pornoxo.com' in url:
@@ -548,7 +679,7 @@ def analyze():
                     height = 0
                     try:
                         height = int(re.sub(r'\D', '', label))
-                    except: pass
+                    except Exception: pass
                     
                     # Clean up URL (unicode escapes are handled by json.loads)
                     # Note: PornoXO URLs might need the Referer header during download
@@ -665,7 +796,7 @@ def analyze():
                         if line.startswith('#EXT-X-STREAM-INF:'):
                             # Extract resolution and bandwidth
                             resolution_match = re.search(r'RESOLUTION=(\d+)x(\d+)', line)
-                            bandwidth_match = re.search(r'BANDWIDTH=(\d+)', line)
+                            _bandwidth_match = re.search(r'BANDWIDTH=(\d+)', line)
                             
                             # Next line should be the playlist URL
                             if i + 1 < len(lines) and resolution_match:
@@ -753,7 +884,6 @@ def analyze():
                 })
 
         except Exception as e:
-            import traceback
             logger.error(f"Custom XNXX extraction failed: {e}")
             logger.error(f"XNXX Traceback: {traceback.format_exc()}")
             # Fallthrough to yt-dlp
@@ -821,44 +951,22 @@ def analyze():
         except Exception as e:
             logger.warning(f"HQPorner fallback pre-check failed: {e}")
 
-
-    if browser_source and browser_source != 'manual':
-        logger.info(f"Extracting cookies for {browser_source} using cookie_utils...")
-        try:
-            extracted_cookies_path = cookie_utils.extract_cookies_to_file(browser_source)
-            if extracted_cookies_path:
-                logger.info(f"Cookies extracted to {extracted_cookies_path}")
-                cookies_path = extracted_cookies_path # Use this path temporarly
-            else:
-                logger.warning(f"Failed to extract cookies from {browser_source}. Will let yt-dlp try directly.")
-                cookie_extraction_failed = True # Mark as failed but we will still try via yt-dlp
-        except Exception as e:
-            logger.error(f"Error during manual cookie extraction: {e}")
-            cookie_extraction_failed = True
-
-    # --------------------------------
-
-    # Build Command
-    # Remove --flat-playlist to ensure full extraction for single videos
-    # ENABLE VERBOUS LOGGING and REMOVE --no-warnings to see why it fails
+    # Build yt-dlp Command
     cmd = [sys.executable, '-m', 'yt_dlp', '--dump-json', '--verbose']
     
-    # Modern Chrome User-Agent to match typical browser cookies and avoid bot detection
+    # Modern Chrome User-Agent and Impersonation to avoid bot detection
+    cmd.extend(['--impersonate', 'chrome'])
     cmd.extend(['--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'])
     
-    # Explicit Referer
+    # Explicit Referer for sites that need it
     if 'youporn.com' in url:
         cmd.extend(['--referer', 'https://www.youporn.com/'])
 
-    if extracted_cookies_path:
-         # We manually extracted them, so use --cookies FILE
-         cmd.extend(['--cookies', extracted_cookies_path])
-    elif browser_source and browser_source != 'manual':
-        if not cookie_extraction_failed:
-             cmd.extend(['--cookies-from-browser', browser_source])
-        else:
-             logger.warning("Skipping browser cookies due to extraction failure. Proceeding anonymously.")
-             
+    # --- COOKIE HANDLING ---
+    # Priority: 1) Persistent cookies.txt, 2) Manual cookies pasted by user
+    if os.path.exists(PERSISTENT_COOKIES_FILE):
+        cmd.extend(['--cookies', PERSISTENT_COOKIES_FILE])
+        logger.info("Analyze: Using persistent cookies file")
     elif cookies_content:
         # Sanitize Manual Cookies: Convert spaces to tabs if likely Netscape format
         try:
@@ -934,7 +1042,7 @@ def analyze():
 
             # Helper for browser lock
             if "cookie" in error_msg.lower() and ("copy" in error_msg.lower() or "lock" in error_msg.lower() or "permission" in error_msg.lower()):
-                clean_error = "Error de Cookies: El navegador está bloqueado. Por favor cierra el navegador o usa el 'Modo Manual' para pegar cookies."
+                clean_error = "Error de Cookies: El navegador estÃ¡ bloqueado. Por favor cierra el navegador o usa el 'Modo Manual' para pegar cookies."
             elif hqporner_provider_blocked:
                 clean_error = (
                     'HQPorner carga este video mediante un proveedor embebido no compatible o bloqueado en esta red. '
@@ -1108,7 +1216,7 @@ def analyze():
             
             # Label Audio Only
             if not is_video and is_audio:
-                resolution = "🎵 Audio Only"
+                resolution = "ðŸŽµ Audio Only"
                 height = 0 # Ensure it groups together
             
             filesize = f.get('filesize') or f.get('filesize_approx') or 0
@@ -1160,28 +1268,17 @@ def analyze():
             'formats': formats,
             'session_id': session_id,
             'webpage_url': webpage_url,
-            'cookie_warning': cookie_extraction_failed
+            'cookie_warning': False
         })
 
     except subprocess.TimeoutExpired:
         if os.path.exists(cookies_path): os.remove(cookies_path)
-        return jsonify({'error': 'Tiempo de espera agotado. El navegador tardó demasiado en responder.'}), 504
+        return jsonify({'error': 'Tiempo de espera agotado. El navegador tardÃ³ demasiado en responder.'}), 504
     except Exception as e:
         logger.error(f"Error in extract_info subprocess: {e}")
         if os.path.exists(cookies_path): os.remove(cookies_path)
         clean_error = re.sub(r'\x1b\[[0-9;]*m', '', str(e))
         return jsonify({'error': clean_error}), 500
-    finally:
-         if extracted_cookies_path and os.path.exists(extracted_cookies_path):
-             # Move it to the standard session cookie path so download step finds it automatically
-             # We overwrite the 'cookies_path' which is get_cookies_path(session_id)
-             final_cookie_path = get_cookies_path(session_id)
-             try:
-                 if os.path.exists(final_cookie_path): os.remove(final_cookie_path)
-                 shutil.move(extracted_cookies_path, final_cookie_path)
-                 logger.info(f"Moved extracted cookies to {final_cookie_path} for session reuse")
-             except Exception as e:
-                 logger.error(f"Failed to move extracted cookies: {e}")
 
 
 def run_download(url, format_id, session_id, download_id, metadata, browser_source=None, force=False):
@@ -1223,6 +1320,7 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         # Use explicit uploader folder from our metadata, but let yt-dlp name the file
         'outtmpl': os.path.join(TEMP_DOWNLOADS_DIR, uploader_folder, '%(title)s.%(ext)s'), 
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'impersonate': ImpersonateTarget.from_str('chrome'), # Bypass Cloudflare/bot protection
         # 'referer': 'https://www.youporn.com/', # REMOVED global referer logic
         'progress_hooks': [check_abort], 
         'restrictfilenames': True,
@@ -1231,15 +1329,11 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         'socket_timeout': 30,
         'retries': 10,
         'fragment_retries': 10,
-        'concurrent_fragment_downloads': 10, # Aumenta velocidad descargando fragmentos en paralelo
+        # --- Velocidad mÃ¡xima: descarga concurrente de fragmentos (HLS/DASH) ---
+        'concurrent_fragment_downloads': 16,  # 16 hilos paralelos para fragmentos
+        'http_chunk_size': 10 * 1024 * 1024,  # Chunks de 10MB para conexiones rÃ¡pidas
+        'buffersize': 1024 * 16,              # Buffer de red de 16KB
     }
-
-    aria2c_path = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WinGet', 'Links', 'aria2c.exe')
-    if os.path.exists(aria2c_path):
-        ydl_opts['external_downloader'] = aria2c_path
-        # -x 16 connections, -s 16 splits, -k 1M chunks
-        ydl_opts['external_downloader_args'] = ['-x', '16', '-s', '16', '-k', '1M']
-
 
     if FFMPEG_LOCATION:
         ydl_opts['ffmpeg_location'] = FFMPEG_LOCATION
@@ -1274,25 +1368,12 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
     # Create temp dir if not exists
     os.makedirs(unique_temp, exist_ok=True)
     
-    if browser_source and browser_source != 'manual':
-        # Check if we have a file from Analyze step
-        if os.path.exists(cookies_path):
-             ydl_opts['cookiefile'] = cookies_path
-        else:
-             # Try to re-extract if missing
-             try:
-                extracted = cookie_utils.extract_cookies_to_file(browser_source)
-                if extracted:
-                    ydl_opts['cookiefile'] = extracted
-                else:
-                    # Failed to extract. Skip to avoid crash if locked.
-                    logger.warning(f"Download: Failed to extract cookies from {browser_source}. Proceeding without them.")
-                    # ydl_opts['cookiesfrombrowser'] = (browser_source, ) # DISABLE THIS to avoid crash
-             except:
-                # ydl_opts['cookiesfrombrowser'] = (browser_source, ) # DISABLE THIS
-                pass
-
+    # Use persistent cookies if available (uploaded once via /api/upload-cookies)
+    if os.path.exists(PERSISTENT_COOKIES_FILE):
+        ydl_opts['cookiefile'] = PERSISTENT_COOKIES_FILE
+        logger.info("Using persistent cookies for download")
     elif os.path.exists(cookies_path):
+        # Fallback: per-session cookies from manual paste
         ydl_opts['cookiefile'] = cookies_path
 
     class IDHook:
@@ -1368,12 +1449,11 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         
     except Exception as e:
         err_msg = str(e)
-        import traceback
         logger.error(f"Download Error Traceback: {traceback.format_exc()}")
 
         # WinError 32 handling: If we are in 'processing' state, it might be a cleanup error.
         # If the file exists, we might declare victory.
-        is_win_error_32 = "[WinError 32]" in err_msg or (hasattr(e, 'winerror') and e.winerror == 32)
+        is_win_error_32 = "[WinError 32]" in err_msg or (isinstance(e, OSError) and e.winerror == 32)
         
         # Check if we were already processing (means download finished, failure is likely in merge/cleanup)
         current_status = download_progress.get(download_id, {}).get('status')
@@ -1397,13 +1477,13 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         if os.path.exists(cookies_path) and not browser_source:
              try:
                  os.remove(cookies_path)
-             except: pass
+             except Exception: pass
         
         # Cleanup unique temp dir ONLY if NOT paused
         if download_progress.get(download_id, {}).get('status') != 'paused':
             for _ in range(5): # Retry loop
                 try:
-                    import shutil
+                    # shutil already imported at top-level
                     if os.path.exists(unique_temp):
                         shutil.rmtree(unique_temp)
                     break 
@@ -1450,6 +1530,11 @@ def download():
     if 'youporn.com' in url:
         url = url.replace('es.youporn.com', 'www.youporn.com')
         logger.info(f"Normalized Download URL to: {url}")
+
+    # Fix PornHub language subdomains (es., fr., de., etc.) -> www.
+    if 'pornhub.com' in url:
+        url = re.sub(r'https?://[a-z]{2}\.pornhub\.com', 'https://www.pornhub.com', url)
+        logger.info(f"Normalized PornHub Download URL to: {url}")
 
     # Optional: Check for running downloads? 
     # Duplicate check happens in Frontend before calling this, or here.
@@ -1571,217 +1656,71 @@ def health():
         'queue': queue,
     })
 
-@app.route('/move_file', methods=['POST'])
-def move_file():
-    data = request.get_json(silent=True) or {}
-    download_id = data.get('download_id')
-    destination = data.get('destination')
 
-    if not download_id or not destination:
-        return jsonify({'error': 'Faltan datos (ID o destino)'}), 400
+# ===== CLEANUP THREAD =====
+# Automatically delete temp files older than 2 hours
 
-    history = load_history()
-    item = next((h for h in history if h.get('download_id') == download_id), None)
+CLEANUP_INTERVAL_SECONDS = 30 * 60  # 30 minutes
+CLEANUP_MAX_AGE_SECONDS = 2 * 60 * 60  # 2 hours
 
-    if not item:
-        return jsonify({'error': 'Video no encontrado en historial'}), 404
-    
-    current_path = item.get('file_path')
-    if not current_path or not os.path.exists(current_path):
-        return jsonify({'error': 'El archivo original ya no existe en el disco'}), 404
-
-    current_path = os.path.abspath(current_path)
-    if not _is_within_path(current_path, TEMP_DOWNLOADS_DIR):
-        return jsonify({'error': 'El archivo no pertenece al directorio de descargas permitido'}), 403
-
-    # Normalize paths
-    destination = os.path.abspath(destination)
-    if not os.path.exists(destination):
+def cleanup_old_files():
+    """Background thread that cleans up old temporary download files."""
+    while True:
+        time.sleep(CLEANUP_INTERVAL_SECONDS)
         try:
-            os.makedirs(destination)
-        except Exception as e:
-            return jsonify({'error': f'No se pudo crear la carpeta: {str(e)}'}), 500
-            
-    filename = os.path.basename(current_path)
-    new_path = os.path.join(destination, filename)
-
-    if os.path.exists(new_path):
-         return jsonify({'error': 'El archivo ya existe en el destino'}), 409
-
-    try:
-        shutil.move(current_path, new_path)
-        
-        # Update History
-        item['file_path'] = new_path
-        with history_lock:
-            _write_history_unlocked(history)
-            
-        return jsonify({'status': 'ok', 'new_path': new_path})
-    except Exception as e:
-        logger.error(f"Error moving file: {e}")
-        return jsonify({'error': f'Error moviendo archivo: {str(e)}'}), 500
-
-@app.route('/pick_folder', methods=['GET'])
-def pick_folder():
-    try:
-        import tkinter
-        from tkinter import filedialog
-        
-        # Create hidden root window
-        root = tkinter.Tk()
-        root.withdraw() # Hide the main window
-        
-        # Make sure it appears on top
-        root.attributes('-topmost', True)
-        
-        folder_selected = filedialog.askdirectory()
-        
-        root.destroy() # Cleanup
-        
-        if folder_selected:
-            # Normalize path
-            folder_selected = os.path.abspath(folder_selected)
-            return jsonify({'path': folder_selected})
-        else:
-             return jsonify({'path': None}) # Cancelled
-            
-    except Exception as e:
-        logger.error(f"Error opening folder picker: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/reorganize', methods=['POST'])
-def reorganize():
-    data = request.json
-    download_id = data.get('download_id')
-    target_uploader = data.get('target_uploader')
-
-    if not download_id or not target_uploader:
-        return jsonify({'error': 'Faltan datos'}), 400
-
-    history = load_history()
-    item = next((h for h in history if h.get('download_id') == download_id), None)
-
-    if not item:
-        return jsonify({'error': 'Video no encontrado en historial'}), 404
-        
-    current_path = item.get('file_path')
-    if not current_path or not os.path.exists(current_path):
-        return jsonify({'error': 'Archivo físico no encontrado'}), 404
-
-    # Determine paths
-    target_folder = os.path.join(TEMP_DOWNLOADS_DIR, target_uploader)
-    if not os.path.exists(target_folder):
-        os.makedirs(target_folder, exist_ok=True)
-        
-    filename = os.path.basename(current_path)
-    new_path = os.path.join(target_folder, filename)
-    
-    # Avoid collision (simple increment)
-    if os.path.exists(new_path) and new_path != current_path:
-        base, ext = os.path.splitext(filename)
-        counter = 1
-        while os.path.exists(new_path):
-            new_path = os.path.join(target_folder, f"{base}_{counter}{ext}")
-            counter += 1
-
-    try:
-        shutil.move(current_path, new_path)
-        
-        # Update Item
-        item['file_path'] = new_path
-        item['uploader'] = target_uploader
-        
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2)
-            
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-         return jsonify({'error': f"Error moviendo: {e}"}), 500
-
-@app.route('/rename_folder', methods=['POST'])
-def rename_folder():
-    data = request.json
-    old_name = data.get('old_name')
-    new_name = data.get('new_name')
-
-    if not old_name or not new_name:
-        return jsonify({'error': 'Faltan datos'}), 400
-
-    if old_name == new_name:
-        return jsonify({'status': 'ok'}) # No change
-
-    # Normalize names
-    # Sanitize new name (simple)
-    new_name = "".join([c for c in new_name if c.isalpha() or c.isdigit() or c in (' ', '-', '_')]).strip()
-    if not new_name:
-         return jsonify({'error': 'Nombre inválido'}), 400
-
-    history = load_history()
-    
-    # Paths
-    old_path = os.path.join(TEMP_DOWNLOADS_DIR, old_name)
-    new_path = os.path.join(TEMP_DOWNLOADS_DIR, new_name)
-
-    # 1. Rename/Merge physical folder
-    if os.path.exists(old_path):
-        if not os.path.exists(new_path):
-            try:
-                os.rename(old_path, new_path)
-            except Exception as e:
-                return jsonify({'error': f"Error renombrando carpeta en disco: {e}"}), 500
-        else:
-            # Merge: Move content from old to new
-            try:
-                for item in os.listdir(old_path):
-                    s = os.path.join(old_path, item)
-                    d = os.path.join(new_path, item)
-                    if os.path.exists(d):
-                         # Collision: rename source file
-                         base, ext = os.path.splitext(item)
-                         counter = 1
-                         while os.path.exists(d):
-                             d = os.path.join(new_path, f"{base}_{counter}{ext}")
-                             counter += 1
-                    shutil.move(s, d)
-                # Remove empty old dir
-                os.rmdir(old_path)
-            except Exception as e:
-                return jsonify({'error': f"Error fusionando carpetas: {e}"}), 500
-    
-    # 2. Update History
-    updated = False
-    for item in history:
-        if item.get('uploader') == old_name:
-            item['uploader'] = new_name
-            # Also update file_path
-            # We must construct the new path because the folder name changed
-            current_file_path = item.get('file_path')
-            if current_file_path:
-                filename = os.path.basename(current_file_path)
-                # If we merged and renamed files, we might lose track of the exact new filename if we don't track the rename above.
-                # However, for simplicity in a "folder rename", usually we assume 1:1 map unless collision.
-                # If there was a collision in the merge step, 'shutil.move' moves it but we didn't track *which* file went where in the loop for the JSON update.
-                # This is a limitation. To be robust, we should try to finding the file in the new dir.
+            now = time.time()
+            cleaned = 0
+            for root, dirs, files in os.walk(TEMP_DOWNLOADS_DIR):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    try:
+                        age = now - os.path.getmtime(fpath)
+                        if age > CLEANUP_MAX_AGE_SECONDS:
+                            os.remove(fpath)
+                            cleaned += 1
+                            logger.info(f"Cleanup: Deleted old file {fname} (age: {age/3600:.1f}h)")
+                    except Exception as e:
+                        logger.warning(f"Cleanup: Could not delete {fname}: {e}")
                 
-                # Best effort: check if file exists in new path with original name
-                potential_path = os.path.join(new_path, filename)
-                if os.path.exists(potential_path):
-                    item['file_path'] = potential_path
-                else: 
-                     # Should we search for it? or just point to it?
-                     # If we renamed it due to collision, we might have lost it in the JSON link. 
-                     # But collisions only happen if 'new_name' folder already had that file.
-                     # Let's hope for the best or assume standard move.
-                     item['file_path'] = potential_path 
+                # Remove empty subdirectories
+                for dname in dirs:
+                    dpath = os.path.join(root, dname)
+                    try:
+                        if not os.listdir(dpath):
+                            os.rmdir(dpath)
+                            logger.info(f"Cleanup: Removed empty dir {dname}")
+                    except Exception:
+                        pass
             
-            updated = True
-    
-    if updated:
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2)
+            if cleaned > 0:
+                # Update history: mark entries whose files no longer exist as 'expired'
+                with history_lock:
+                    history = _load_history_unlocked()
+                    updated = False
+                    for item in history:
+                        fp = item.get('file_path', '')
+                        if fp and not os.path.exists(fp) and item.get('status') == 'completed':
+                            item['status'] = 'expired'
+                            updated = True
+                    if updated:
+                        _write_history_unlocked(history)
+                
+                logger.info(f"Cleanup: Removed {cleaned} expired files")
+        except Exception as e:
+            logger.error(f"Cleanup thread error: {e}")
 
-    return jsonify({'status': 'ok', 'new_name': new_name})
+# Start cleanup thread
+cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True, name='cleanup-worker')
+cleanup_thread.start()
 
 if __name__ == '__main__':
-    print("Iniciando V128 Downloader (Enhanced) en http://localhost:5000")
-    app.run(debug=True, port=5000)
+    print("Iniciando V128 Downloader en http://0.0.0.0:5000")
+    try:
+        from waitress import serve
+        serve(app, host='0.0.0.0', port=5000)
+    except ImportError:
+        # Fallback to Flask dev server if waitress not installed
+        logger.warning("Waitress not installed. Using Flask dev server (not for production)")
+        app.run(debug=True, host='0.0.0.0', port=5000)
+
+
