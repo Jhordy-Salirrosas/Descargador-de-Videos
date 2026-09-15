@@ -74,14 +74,31 @@ HISTORY_FILE = os.path.join(BASE_DIR, 'data', 'history.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'config.json')
 PERSISTENT_COOKIES_FILE = os.path.join(BASE_DIR, 'data', 'cookies.txt')
 
+import base64
+
 # --- CLOUD PERSISTENCE AUTOLOAD ---
 # Render's free tier deletes runtime files on restart. To automate this permanently:
 if os.environ.get('YT_COOKIES_CONTENT'):
     try:
         os.makedirs(os.path.dirname(PERSISTENT_COOKIES_FILE), exist_ok=True)
-        # Users might paste multiline content, but env vars sometimes compress it. 
-        # Using string replacement to ensure newlines are preserved if passed as literal \n
-        env_cookies = os.environ.get('YT_COOKIES_CONTENT').replace('\\n', '\n')
+        env_cookies = os.environ.get('YT_COOKIES_CONTENT').strip()
+        
+        # Check if the content is base64 encoded (starts with standard base64 for "# Netscape" -> "IyBOZXRz")
+        # Or if it doesn't contain spaces and has valid base64 characters
+        try:
+            # Try to decode it as base64 first
+            decoded_bytes = base64.b64decode(env_cookies)
+            decoded_str = decoded_bytes.decode('utf-8')
+            if "# Netscape HTTP Cookie File" in decoded_str or ".com\t" in decoded_str:
+                env_cookies = decoded_str
+                logger.info("Base64 cookie format detected and decoded.")
+            else:
+                # If it decoded but doesn't look like cookies, revert to original
+                env_cookies = env_cookies.replace('\\n', '\n')
+        except Exception:
+            # Not valid base64, use as raw text
+            env_cookies = env_cookies.replace('\\n', '\n')
+
         with open(PERSISTENT_COOKIES_FILE, 'w', encoding='utf-8') as f:
             f.write(env_cookies)
         logger.info("Cookies automáticos cargados desde Variable de Entorno 'YT_COOKIES_CONTENT'.")
