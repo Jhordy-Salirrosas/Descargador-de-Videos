@@ -73,6 +73,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, 'data', 'history.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'config.json')
 PERSISTENT_COOKIES_FILE = os.path.join(BASE_DIR, 'data', 'cookies.txt')
+
+# --- CLOUD PERSISTENCE AUTOLOAD ---
+# Render's free tier deletes runtime files on restart. To automate this permanently:
+if os.environ.get('YT_COOKIES_CONTENT'):
+    try:
+        os.makedirs(os.path.dirname(PERSISTENT_COOKIES_FILE), exist_ok=True)
+        # Users might paste multiline content, but env vars sometimes compress it. 
+        # Using string replacement to ensure newlines are preserved if passed as literal \n
+        env_cookies = os.environ.get('YT_COOKIES_CONTENT').replace('\\n', '\n')
+        with open(PERSISTENT_COOKIES_FILE, 'w', encoding='utf-8') as f:
+            f.write(env_cookies)
+        logger.info("Cookies automáticos cargados desde Variable de Entorno 'YT_COOKIES_CONTENT'.")
+    except Exception as e:
+        logger.error(f"Error cargando cookies desde variable de entorno: {e}")
 DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2
 
 # Load Config
