@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import requests
 from flask import Flask, render_template, request, jsonify, send_file, after_this_request
 import yt_dlp
-
+from yt_dlp.networking.impersonate import ImpersonateTarget
 
 
 # Configure logging
@@ -955,6 +955,7 @@ def analyze():
     cmd = [sys.executable, '-m', 'yt_dlp', '--dump-json', '--verbose']
     
     # Modern Chrome User-Agent to avoid bot detection
+    cmd.extend(['--impersonate', 'Chrome-110'])
     cmd.extend(['--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'])
     
     # Explicit Referer for sites that need it
@@ -1319,6 +1320,7 @@ def run_download(url, format_id, session_id, download_id, metadata, browser_sour
         # Use explicit uploader folder from our metadata, but let yt-dlp name the file
         'outtmpl': os.path.join(TEMP_DOWNLOADS_DIR, uploader_folder, '%(title)s.%(ext)s'), 
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'impersonate': ImpersonateTarget.from_str('Chrome-110'),
         # 'referer': 'https://www.youporn.com/', # REMOVED global referer logic
         'progress_hooks': [check_abort], 
         'restrictfilenames': True,
